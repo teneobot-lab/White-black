@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppStore } from '../context/Store';
 import { Transaction, CartItem } from '../types';
-import { ArrowDownLeft, ArrowUpRight, FileText, Calendar, Filter, Download, Image, X, Edit2, Plus, Trash2, FileSpreadsheet, Search, CheckCircle, Package } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, FileText, Calendar, Filter, Download, Image, X, Edit2, Plus, Trash2, FileSpreadsheet, Search, CheckCircle, Package, ChevronDown, ChevronUp } from 'lucide-react';
 import { utils, writeFile } from 'xlsx';
 
 const History: React.FC = () => {
@@ -14,6 +14,9 @@ const History: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   
+  // UI State for Expanded Rows
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
   // Autocomplete State
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const filterDropdownRef = useRef<HTMLDivElement>(null);
@@ -48,12 +51,22 @@ const History: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const toggleRow = (id: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(id)) {
+      newExpanded.delete(id);
+    } else {
+      newExpanded.add(id);
+    }
+    setExpandedRows(newExpanded);
+  };
+
   // Optimized & Fuzzy Filter Suggestions Logic
   const filterSuggestions = useMemo(() => {
     const query = filterItemText.trim().toLowerCase();
     if (!query) return [];
 
-    const searchTerms = query.split(/\s+/); // Split input by spaces for multi-word matching
+    const searchTerms = query.split(/\s+/);
 
     return items
       .map(item => {
@@ -61,27 +74,19 @@ const History: React.FC = () => {
         const name = item.name.toLowerCase();
         const sku = item.sku.toLowerCase();
 
-        // 1. Exact Match (Highest Priority)
         if (sku === query || name === query) score += 100;
-        
-        // 2. Starts With (High Priority)
         else if (sku.startsWith(query) || name.startsWith(query)) score += 75;
-        
-        // 3. Contains Substring (Medium Priority)
         else if (sku.includes(query) || name.includes(query)) score += 50;
-        
-        // 4. Fuzzy / Multi-term match (e.g. "Wire Mouse" -> "Wireless Mouse")
         else {
-           // Check if ALL words in query exist in Name or SKU
            const allTermsMatch = searchTerms.every(term => name.includes(term) || sku.includes(term));
            if (allTermsMatch) score += 25;
         }
 
         return { item, score };
       })
-      .filter(result => result.score > 0) // Remove non-matches
-      .sort((a, b) => b.score - a.score) // Sort by relevance (highest score first)
-      .slice(0, 8) // Limit to top 8 results for performance
+      .filter(result => result.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
       .map(result => result.item);
   }, [items, filterItemText]);
 
@@ -92,36 +97,30 @@ const History: React.FC = () => {
 
   // Advanced Filtering Logic
   const filteredTransactions = transactions.filter(trx => {
-    // 1. General Text Filter (ID, Supplier, Ref)
     const matchesGeneralText = 
       trx.transactionId.toLowerCase().includes(filterText.toLowerCase()) ||
       trx.supplierName?.toLowerCase().includes(filterText.toLowerCase()) ||
       trx.riNumber?.toLowerCase().includes(filterText.toLowerCase()) ||
       trx.sjNumber?.toLowerCase().includes(filterText.toLowerCase());
     
-    // 2. Item Specific Filter
-    // If filterItemText is set, check if ANY item in the transaction matches
     const matchesItem = !filterItemText || trx.items.some(i => 
       i.itemName.toLowerCase().includes(filterItemText.toLowerCase()) ||
       i.sku.toLowerCase().includes(filterItemText.toLowerCase())
     );
 
-    // 3. Type Filter
     const matchesType = filterType === 'All' || trx.type === filterType;
     
-    // 4. Date Range Filter
     let matchesDate = true;
     if (startDate && endDate) {
       const trxDate = new Date(trx.date).getTime();
       const start = new Date(startDate).getTime();
-      const end = new Date(endDate).getTime() + 86400000; // Add 1 day to include end date
+      const end = new Date(endDate).getTime() + 86400000;
       matchesDate = trxDate >= start && trxDate < end;
     }
 
     return matchesGeneralText && matchesItem && matchesType && matchesDate;
   });
 
-  // Filter items for the "Add Item" dropdown in modal
   const modalFilteredItems = items.filter(i => 
     i.status === 'Active' && 
     (i.name.toLowerCase().includes(addItemSearch.toLowerCase()) || 
@@ -136,9 +135,8 @@ const History: React.FC = () => {
       poNumber: trx.poNumber || '',
       sjNumber: trx.sjNumber || '',
       photos: trx.photos || [],
-      items: trx.items.map(i => ({...i})) // Deep copy items
+      items: trx.items.map(i => ({...i}))
     });
-    // Reset Add Item state
     setAddItemSearch('');
     setAddItemQty(1);
     setIsAddItemDropdownOpen(false);
@@ -194,8 +192,6 @@ const History: React.FC = () => {
     const wb = utils.book_new();
     let hasData = false;
 
-    // Helper to filter items inside a transaction based on the Item Search input
-    // This allows exporting ONLY the specific item user searched for, even if the transaction has others.
     const getExportableItems = (trx: Transaction) => {
       if (!filterItemText) return trx.items;
       return trx.items.filter(i => 
@@ -204,7 +200,6 @@ const History: React.FC = () => {
       );
     };
 
-    // 1. Process Inbound
     const inboundTrx = filteredTransactions.filter(t => t.type === 'Inbound');
     if (inboundTrx.length > 0) {
       const inboundData = inboundTrx.flatMap(trx => 
@@ -228,7 +223,6 @@ const History: React.FC = () => {
       }
     }
 
-    // 2. Process Outbound
     const outboundTrx = filteredTransactions.filter(t => t.type === 'Outbound');
     if (outboundTrx.length > 0) {
       const outboundData = outboundTrx.flatMap(trx => 
@@ -251,7 +245,6 @@ const History: React.FC = () => {
     }
 
     if (hasData) {
-      // Create filename based on filters for better UX
       const datePart = startDate ? `_${startDate}_to_${endDate || 'now'}` : '';
       const itemPart = filterItemText ? `_${filterItemText.replace(/[^a-z0-9]/gi, '')}` : '';
       writeFile(wb, `History${itemPart}${datePart}.xlsx`);
@@ -259,8 +252,6 @@ const History: React.FC = () => {
       alert("No matching items found to export with current filters.");
     }
   };
-
-  // --- Modal Item Handlers ---
 
   const handleUpdateItemQty = (index: number, newQty: number) => {
     if (newQty < 1) return;
@@ -277,7 +268,6 @@ const History: React.FC = () => {
   };
 
   const handleAddItemToForm = (item: any) => {
-    // Check if exists
     const existingIndex = editForm.items.findIndex(i => i.itemId === item.id);
     if (existingIndex > -1) {
        const newItems = [...editForm.items];
@@ -289,12 +279,10 @@ const History: React.FC = () => {
          itemName: item.name,
          sku: item.sku,
          quantity: addItemQty,
-         currentStock: item.currentStock // Snapshot
+         currentStock: item.currentStock
        };
        setEditForm({...editForm, items: [...editForm.items, newItem]});
     }
-    
-    // Reset inputs
     setAddItemSearch('');
     setAddItemQty(1);
     setIsAddItemDropdownOpen(false);
@@ -302,7 +290,6 @@ const History: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Sticky Header and Filters */}
       <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">History</h1>
@@ -315,10 +302,8 @@ const History: React.FC = () => {
           </button>
         </div>
         
-        {/* Advanced Filters Grid */}
         <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-             {/* 1. Transaction ID / Ref Search */}
              <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                 <input 
@@ -330,7 +315,6 @@ const History: React.FC = () => {
                 />
              </div>
 
-             {/* 2. Item Name / SKU Search (With Autocomplete) */}
              <div className="relative" ref={filterDropdownRef}>
                 <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                 <input 
@@ -360,7 +344,6 @@ const History: React.FC = () => {
                 )}
              </div>
 
-             {/* 3. Transaction Type */}
              <select 
                 className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
                 value={filterType}
@@ -371,7 +354,6 @@ const History: React.FC = () => {
                 <option value="Outbound">Outbound</option>
               </select>
               
-             {/* 4. Date Range */}
              <div className="flex items-center gap-2">
                <input 
                 type="text"
@@ -412,124 +394,141 @@ const History: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {filteredTransactions.map((trx) => (
-                <tr key={trx.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="font-mono text-zinc-900 dark:text-zinc-100 font-medium">{trx.transactionId}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                      trx.type === 'Inbound' 
-                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' 
-                        : 'bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
-                    }`}>
-                      {trx.type === 'Inbound' ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                      {trx.type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-zinc-400 dark:text-zinc-500" />
-                      <div>
-                        <div>{new Date(trx.date).toLocaleDateString()}</div>
-                        <div className="text-xs text-zinc-400 dark:text-zinc-500">{new Date(trx.date).toLocaleTimeString()}</div>
+              {filteredTransactions.map((trx) => {
+                const isExpanded = expandedRows.has(trx.id);
+                // Smart item filtering for preview
+                const matchingItems = filterItemText 
+                  ? trx.items.filter(i => i.itemName.toLowerCase().includes(filterItemText.toLowerCase()) || i.sku.toLowerCase().includes(filterItemText.toLowerCase()))
+                  : [];
+                
+                const visibleItems = isExpanded 
+                  ? trx.items 
+                  : (filterItemText && matchingItems.length > 0)
+                    ? [...matchingItems, ...trx.items.filter(i => !matchingItems.includes(i))].slice(0, 3)
+                    : trx.items.slice(0, 3);
+
+                return (
+                  <tr key={trx.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors align-top">
+                    <td className="px-6 py-4">
+                      <div className="font-mono text-zinc-900 dark:text-zinc-100 font-medium">{trx.transactionId}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                        trx.type === 'Inbound' 
+                          ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' 
+                          : 'bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                      }`}>
+                        {trx.type === 'Inbound' ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                        {trx.type}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-zinc-400 dark:text-zinc-500" />
+                        <div>
+                          <div className="whitespace-nowrap">{new Date(trx.date).toLocaleDateString()}</div>
+                          <div className="text-xs text-zinc-400 dark:text-zinc-500">{new Date(trx.date).toLocaleTimeString()}</div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
-                    <div className="flex flex-col">
-                      {trx.type === 'Inbound' ? (
-                        <>
-                           <span className="text-zinc-900 dark:text-zinc-200">{trx.supplierName || '-'}</span>
-                           <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                             {trx.riNumber ? `DN: ${trx.riNumber}` : '-'}
-                           </span>
-                           {trx.poNumber && <span className="text-xs text-zinc-400 dark:text-zinc-500">PO: {trx.poNumber}</span>}
-                        </>
-                      ) : (
-                        <span className="text-zinc-900 dark:text-zinc-200">
-                          {trx.sjNumber ? `SJ: ${trx.sjNumber}` : '-'}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
-                     <div className="flex flex-col gap-1">
-                       {/* If filtering by item, emphasize that item */}
-                       {trx.items.map((item, idx) => {
-                         const isMatch = filterItemText && (item.itemName.toLowerCase().includes(filterItemText.toLowerCase()) || item.sku.toLowerCase().includes(filterItemText.toLowerCase()));
-                         if (filterItemText && !isMatch) return null;
+                    </td>
+                    <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
+                      <div className="flex flex-col">
+                        {trx.type === 'Inbound' ? (
+                          <>
+                             <span className="text-zinc-900 dark:text-zinc-200 font-medium">{trx.supplierName || '-'}</span>
+                             <span className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                               {trx.riNumber ? `DN: ${trx.riNumber}` : ''}
+                               {trx.poNumber ? ` • PO: ${trx.poNumber}` : ''}
+                             </span>
+                          </>
+                        ) : (
+                          <span className="text-zinc-900 dark:text-zinc-200 font-medium">
+                            {trx.sjNumber ? `SJ: ${trx.sjNumber}` : '-'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400 min-w-[200px]">
+                       <div className="flex flex-col gap-1.5">
+                         {visibleItems.map((item, idx) => {
+                           const isMatch = filterItemText && (item.itemName.toLowerCase().includes(filterItemText.toLowerCase()) || item.sku.toLowerCase().includes(filterItemText.toLowerCase()));
+                           return (
+                             <div key={idx} className={`text-[11px] leading-tight flex items-start gap-1 ${isMatch ? 'font-bold text-blue-600 dark:text-blue-400' : ''}`}>
+                               <span className="shrink-0 font-mono text-zinc-400 dark:text-zinc-500">{item.quantity}x</span>
+                               <span>{item.itemName}</span>
+                             </div>
+                           );
+                         })}
                          
-                         return (
-                           <div key={idx} className={`text-xs ${isMatch ? 'font-bold text-blue-600 dark:text-blue-400' : ''}`}>
-                             {item.quantity}x {item.itemName}
-                           </div>
-                         );
-                       })}
-                       
-                       {/* Fallback view if no specific filter or show summary */}
-                       {!filterItemText && trx.items.slice(0, 2).map((item, idx) => (
-                         <div key={idx} className="text-xs">
-                           {item.quantity}x {item.itemName}
-                         </div>
-                       ))}
-                       {!filterItemText && trx.items.length > 2 && (
-                         <div className="text-xs text-zinc-400 dark:text-zinc-500">
-                           + {trx.items.length - 2} more items
-                         </div>
-                       )}
-                       
-                       <div className="font-medium text-xs text-zinc-900 dark:text-zinc-100 mt-1">Total: {trx.totalItems}</div>
-                     </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    {trx.photos && trx.photos.length > 0 ? (
-                      <div className="flex justify-center -space-x-2">
-                         {trx.photos.slice(0, 3).map((photo, i) => (
-                           <div 
-                              key={i} 
-                              onClick={() => setPreviewImage(photo)}
-                              className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 overflow-hidden cursor-pointer hover:scale-110 transition-transform shadow-sm"
-                            >
-                             <img src={photo} alt="mini-preview" className="w-full h-full object-cover" />
-                           </div>
-                         ))}
-                         {trx.photos.length > 3 && (
-                           <div className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500 dark:text-zinc-400">
-                             +{trx.photos.length - 3}
-                           </div>
+                         {trx.items.length > 3 && (
+                           <button 
+                             onClick={() => toggleRow(trx.id)}
+                             className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 mt-1 flex items-center gap-1 transition-colors uppercase tracking-wider"
+                           >
+                             {isExpanded ? (
+                               <><ChevronUp className="w-3 h-3" /> Show Less</>
+                             ) : (
+                               <><ChevronDown className="w-3 h-3" /> +{trx.items.length - 3} More Items</>
+                             )}
+                           </button>
                          )}
+                         
+                         {isExpanded && (
+                            <div className="pt-2 mt-2 border-t border-zinc-100 dark:border-zinc-800 text-[10px] font-bold text-zinc-400 dark:text-zinc-500">
+                               TOTAL ITEMS: {trx.totalItems}
+                            </div>
+                         )}
+                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {trx.photos && trx.photos.length > 0 ? (
+                        <div className="flex justify-center -space-x-2">
+                           {trx.photos.slice(0, 3).map((photo, i) => (
+                             <div 
+                                key={i} 
+                                onClick={() => setPreviewImage(photo)}
+                                className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 overflow-hidden cursor-pointer hover:scale-110 transition-transform shadow-sm bg-zinc-100"
+                              >
+                               <img src={photo} alt="mini-preview" className="w-full h-full object-cover" />
+                             </div>
+                           ))}
+                           {trx.photos.length > 3 && (
+                             <div className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500 dark:text-zinc-400 font-bold">
+                               +{trx.photos.length - 3}
+                             </div>
+                           )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-300 dark:text-zinc-700">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-1">
+                        <button 
+                          onClick={() => handleOpenEdit(trx)}
+                          className="text-zinc-400 hover:text-zinc-900 dark:text-zinc-500 dark:hover:text-zinc-200 p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors"
+                          title="Edit Details"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(trx.id)}
+                          className="text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400 p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-colors"
+                          title="Delete Transaction"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    ) : (
-                      <span className="text-xs text-zinc-400 dark:text-zinc-600">-</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-1">
-                      <button 
-                        onClick={() => handleOpenEdit(trx)}
-                        className="text-zinc-400 hover:text-zinc-900 dark:text-zinc-500 dark:hover:text-zinc-200 p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors"
-                        title="Edit Details"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(trx.id)}
-                        className="text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400 p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-colors"
-                        title="Delete Transaction"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {filteredTransactions.length === 0 && (
-            <div className="p-8 text-center text-zinc-400 dark:text-zinc-500 flex flex-col items-center">
-              <FileText className="w-12 h-12 mb-2 opacity-20" />
-              No transactions found matching criteria.
+            <div className="p-12 text-center text-zinc-400 dark:text-zinc-500 flex flex-col items-center">
+              <FileText className="w-12 h-12 mb-4 opacity-10" />
+              <p className="font-medium">No transactions found matching your criteria.</p>
             </div>
           )}
         </div>
@@ -548,36 +547,32 @@ const History: React.FC = () => {
              </div>
              
              <form onSubmit={handleSaveEdit} className="p-6 space-y-6 flex-1 overflow-y-auto">
-                {/* 1. Details Section */}
                 <div className="grid grid-cols-2 gap-4">
                   {editingTrx.type === 'Inbound' ? (
                     <>
                       <div>
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Supplier</label>
-                        <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" value={editForm.supplierName} onChange={e => setEditForm({...editForm, supplierName: e.target.value})} />
+                        <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500" value={editForm.supplierName} onChange={e => setEditForm({...editForm, supplierName: e.target.value})} />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Delivery Note</label>
-                        <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" value={editForm.riNumber} onChange={e => setEditForm({...editForm, riNumber: e.target.value})} />
+                        <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500" value={editForm.riNumber} onChange={e => setEditForm({...editForm, riNumber: e.target.value})} />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">PO Number</label>
-                        <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" value={editForm.poNumber} onChange={e => setEditForm({...editForm, poNumber: e.target.value})} />
+                        <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500" value={editForm.poNumber} onChange={e => setEditForm({...editForm, poNumber: e.target.value})} />
                       </div>
                     </>
                   ) : (
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">SJ Number</label>
-                      <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" value={editForm.sjNumber} onChange={e => setEditForm({...editForm, sjNumber: e.target.value})} />
+                      <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500" value={editForm.sjNumber} onChange={e => setEditForm({...editForm, sjNumber: e.target.value})} />
                     </div>
                   )}
                 </div>
 
-                {/* 2. Items Management Section */}
                 <div className="space-y-3">
                    <h4 className="font-semibold text-sm text-zinc-900 dark:text-white pb-2 border-b border-zinc-100 dark:border-zinc-800">Transaction Items</h4>
-                   
-                   {/* Item List */}
                    <div className="space-y-2">
                       {editForm.items.map((item, idx) => (
                         <div key={idx} className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg group">
@@ -589,7 +584,7 @@ const History: React.FC = () => {
                               <input 
                                 type="number" 
                                 min="1"
-                                className="w-16 px-2 py-1 border border-zinc-200 dark:border-zinc-700 rounded bg-white dark:bg-zinc-950 text-center text-sm"
+                                className="w-16 px-2 py-1 border border-zinc-200 dark:border-zinc-700 rounded bg-white dark:bg-zinc-950 text-center text-sm focus:ring-2 focus:ring-blue-500"
                                 value={item.quantity}
                                 onChange={(e) => handleUpdateItemQty(idx, parseInt(e.target.value) || 1)}
                               />
@@ -603,19 +598,18 @@ const History: React.FC = () => {
                            </div>
                         </div>
                       ))}
-                      {editForm.items.length === 0 && <p className="text-xs text-red-500">At least one item is required.</p>}
+                      {editForm.items.length === 0 && <p className="text-xs text-red-500 font-medium">At least one item is required.</p>}
                    </div>
 
-                   {/* Add New Item */}
                    <div className="pt-2">
-                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">Add Another Item</p>
+                      <p className="text-xs font-bold text-zinc-400 dark:text-zinc-500 mb-2 uppercase tracking-wide">Add Another Item</p>
                       <div className="flex gap-2">
                          <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                             <input 
                                type="text" 
                                placeholder="Search item to add..." 
-                               className="w-full pl-9 pr-3 py-2 border border-blue-200 dark:border-blue-900/50 rounded-lg text-sm bg-blue-50/30 dark:bg-blue-900/10 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600"
+                               className="w-full pl-9 pr-3 py-2 border border-blue-200 dark:border-blue-900/50 rounded-lg text-sm bg-blue-50/30 dark:bg-blue-900/10 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 text-zinc-900 dark:text-zinc-100"
                                value={addItemSearch}
                                onChange={(e) => {
                                  setAddItemSearch(e.target.value);
@@ -643,26 +637,26 @@ const History: React.FC = () => {
                             min="1"
                             value={addItemQty}
                             onChange={(e) => setAddItemQty(parseInt(e.target.value) || 1)}
-                            className="w-20 px-2 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm bg-white dark:bg-zinc-950"
+                            className="w-20 px-2 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500"
                          />
                       </div>
                    </div>
                 </div>
 
-                {/* 3. Photo Management */}
                 <div>
                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Manage Photos</label>
                    <div className="grid grid-cols-4 gap-4">
                       {editForm.photos.map((photo, idx) => (
-                        <div key={idx} className="relative aspect-square rounded overflow-hidden group">
+                        <div key={idx} className="relative aspect-square rounded overflow-hidden group border dark:border-zinc-800">
                            <img src={photo} className="w-full h-full object-cover" alt="" />
-                           <button type="button" onClick={() => setEditForm(prev => ({...prev, photos: prev.photos.filter((_, i) => i !== idx)}))} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100">
+                           <button type="button" onClick={() => setEditForm(prev => ({...prev, photos: prev.photos.filter((_, i) => i !== idx)}))} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity">
                              <X className="w-3 h-3" />
                            </button>
                         </div>
                       ))}
-                      <label className="aspect-square border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded flex items-center justify-center cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                      <label className="aspect-square border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded flex flex-col items-center justify-center cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
                         <Plus className="w-6 h-6 text-zinc-400 dark:text-zinc-500" />
+                        <span className="text-[10px] text-zinc-400 uppercase font-bold mt-1">Add</span>
                         <input type="file" multiple accept="image/*" className="hidden" onChange={handlePhotoUpload} />
                       </label>
                    </div>
@@ -670,11 +664,11 @@ const History: React.FC = () => {
              </form>
 
              <div className="p-6 border-t border-zinc-100 dark:border-zinc-800 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-zinc-900 z-10">
-                <button type="button" onClick={() => setEditingTrx(null)} className="px-4 py-2 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-sm">Cancel</button>
+                <button type="button" onClick={() => setEditingTrx(null)} className="px-4 py-2 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-sm font-medium">Cancel</button>
                 <button 
                   type="button" 
                   onClick={handleSaveEdit} 
-                  className="px-4 py-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg text-sm hover:bg-zinc-800 dark:hover:bg-zinc-200"
+                  className="px-6 py-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg text-sm font-bold hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors shadow-sm"
                 >
                   Save Changes
                 </button>
@@ -685,7 +679,7 @@ const History: React.FC = () => {
 
       {/* Lightbox Preview */}
       {previewImage && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+        <div className="fixed inset-0 z-[60] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setPreviewImage(null)}>
            <div className="relative max-w-4xl max-h-full" onClick={e => e.stopPropagation()}>
              <img src={previewImage} alt="Full preview" className="max-w-full max-h-[85vh] rounded-lg shadow-2xl" />
              <div className="absolute -top-12 right-0 flex gap-2">
