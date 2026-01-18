@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, PropsWithChildre
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
 // GANTI DENGAN IP VPS ANDA
-const API_BASE = "http://IP_VPS_ANDA:5000/api";
+const API_BASE = "http://178.128.106.33:5000/api";
 
 interface AppContextType {
   items: Item[];
