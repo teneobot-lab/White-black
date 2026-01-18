@@ -36,7 +36,7 @@ interface AppContextType {
   rejectLogs: RejectLog[];
   
   addItem: (item: Omit<Item, 'id'>) => void;
-  addItems: (items: Omit<Item, 'id'>[]) => void;
+  addItems: (items: (Omit<Item, 'id'> & { id?: string })[]) => void;
   updateItem: (item: Item) => void;
   deleteItem: (id: string) => void;
   processTransaction: (
@@ -115,10 +115,10 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     setItems([...items, { ...newItem, id }]);
   };
 
-  const addItems = (newItems: Omit<Item, 'id'>[]) => {
+  const addItems = (newItems: (Omit<Item, 'id'> & { id?: string })[]) => {
     const itemsWithIds = newItems.map(item => ({
       ...item,
-      id: Math.random().toString(36).substr(2, 9)
+      id: item.id || Math.random().toString(36).substr(2, 9)
     }));
     setItems(prev => [...prev, ...itemsWithIds]);
   };

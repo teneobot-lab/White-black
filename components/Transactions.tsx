@@ -5,7 +5,7 @@ import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, Ch
 import { read, utils, writeFile } from 'xlsx';
 
 const Transactions: React.FC = () => {
-  const { items, processTransaction } = useAppStore();
+  const { items, processTransaction, addItems } = useAppStore();
   
   const [activeTab, setActiveTab] = useState<'Inbound' | 'Outbound'>('Outbound');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -151,9 +151,9 @@ const Transactions: React.FC = () => {
 
   const downloadTemplate = () => {
     const templateData = [
-      { SKU: "ELEC-001", Quantity: 5, Unit: "pcs" },
-      { SKU: "OFF-001", Quantity: 2, Unit: "Box" },
-      { SKU: "ELEC-002", Quantity: 10, Unit: "" }
+      { SKU: "ELEC-001", Name: "Wireless Mouse", Quantity: 5, Unit: "pcs" },
+      { SKU: "OFF-001", Name: "A4 Paper Ream", Quantity: 2, Unit: "Box" },
+      { SKU: "NEW-ITEM-99", Name: "Example Auto-Create Item", Quantity: 10, Unit: "pcs" }
     ];
     const ws = utils.json_to_sheet(templateData);
     const wb = utils.book_new();
@@ -174,7 +174,45 @@ const Transactions: React.FC = () => {
       let importedCart: CartItem[] = [...cart];
       let errors: string[] = [];
       let addedCount = 0;
+      let newItemsCreatedCount = 0;
 
+      // Local references to find items accurately after creating new ones
+      const localItems: Item[] = [...items];
+      const newItemsToStore: (Omit<Item, 'id'> & { id: string })[] = [];
+
+      // 1. First pass: Identify missing SKUs and create them
+      for (const row of jsonData) {
+        const sku = String(row.SKU || "").trim();
+        if (!sku) continue;
+
+        const existingItem = localItems.find(i => i.sku === sku);
+        if (!existingItem) {
+          // Construct a new item master record automatically
+          const newId = Math.random().toString(36).substr(2, 9);
+          const newItem: Item = {
+            id: newId,
+            sku: sku,
+            name: String(row.Name || row.SKU || "New Item"),
+            category: "Uncategorized",
+            price: 0,
+            location: "-",
+            minLevel: 0,
+            status: "Active",
+            currentStock: 0, // Initial stock is 0
+            unit: String(row.Unit || "pcs"),
+          };
+          localItems.push(newItem);
+          newItemsToStore.push(newItem);
+          newItemsCreatedCount++;
+        }
+      }
+
+      // 2. Commit new items to store if any
+      if (newItemsToStore.length > 0) {
+        addItems(newItemsToStore);
+      }
+
+      // 3. Second pass: Build the cart using localItems (which now includes the new ones)
       for (const row of jsonData) {
         const sku = String(row.SKU || "").trim();
         const qtyValue = parseFloat(row.Quantity);
@@ -182,9 +220,9 @@ const Transactions: React.FC = () => {
 
         if (!sku || isNaN(qtyValue) || qtyValue <= 0) continue;
 
-        const item = items.find(i => i.sku === sku && i.status === 'Active');
+        const item = localItems.find(i => i.sku === sku && i.status === 'Active');
         if (!item) {
-          errors.push(`SKU ${sku} not found or inactive.`);
+          errors.push(`SKU ${sku} could not be processed.`);
           continue;
         }
 
@@ -231,10 +269,16 @@ const Transactions: React.FC = () => {
       }
 
       setCart(importedCart);
+      
+      let successText = `Successfully imported ${addedCount} items to cart.`;
+      if (newItemsCreatedCount > 0) {
+        successText += ` (${newItemsCreatedCount} new SKUs auto-created in Inventory)`;
+      }
+
       if (errors.length > 0) {
-        setMessage({ type: 'error', text: `Imported ${addedCount} items. Errors: ${errors.slice(0, 2).join(', ')}${errors.length > 2 ? '...' : ''}` });
+        setMessage({ type: 'error', text: `${successText} Errors: ${errors.slice(0, 2).join(', ')}${errors.length > 2 ? '...' : ''}` });
       } else {
-        setMessage({ type: 'success', text: `Successfully imported ${addedCount} items to cart.` });
+        setMessage({ type: 'success', text: successText });
       }
     } catch (err) {
       console.error(err);
