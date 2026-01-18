@@ -6,16 +6,11 @@ export const generateAIResponse = async (
   prompt: string, 
   contextData: { items: Item[], transactions: Transaction[] }
 ): Promise<string> => {
-  // Pengecekan aman untuk variabel lingkungan di browser
-  const apiKey = (window as any).process?.env?.API_KEY || "";
-
-  if (!apiKey || apiKey === "undefined" || apiKey.length < 10) {
-    return "Error: API Key Gemini belum dikonfigurasi. Silakan tambahkan di Environment Variables Vercel.";
-  }
+  // Always initialize with the latest API key from the environment variable.
+  // The API key must be obtained exclusively from process.env.API_KEY.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
-    const ai = new GoogleGenAI({ apiKey: apiKey });
-
     const lowStockItems = contextData.items.filter(i => i.currentStock <= i.minLevel);
     const contextSummary = `
       Current System State:
@@ -24,22 +19,19 @@ export const generateAIResponse = async (
       - Recent Transactions: ${contextData.transactions.slice(0, 5).map(t => `${t.type} ID ${t.transactionId}`).join(', ')}
     `;
 
-    const systemInstruction = `
-      You are Jupiter, an intelligent warehouse assistant. 
-      You help users manage inventory and analyze warehouse data.
-    `;
-
+    // Use gemini-3-flash-preview for general text tasks as recommended.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Context: ${contextSummary}\n\nUser Question: ${prompt}`,
       config: {
-        systemInstruction: systemInstruction,
+        systemInstruction: "You are Jupiter, an intelligent warehouse assistant. You help users manage inventory and analyze warehouse data. Provide concise and helpful insights based on the provided context.",
       }
     });
 
+    // Directly access the .text property from the response.
     return response.text || "I couldn't generate a response.";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "Maaf, terjadi kesalahan API. Periksa console untuk detail.";
+    return "Maaf, terjadi kesalahan saat menghubungi asisten AI. Silakan coba beberapa saat lagi.";
   }
 };

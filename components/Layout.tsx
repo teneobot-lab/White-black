@@ -1,4 +1,6 @@
+
 import React, { useState } from 'react';
+// Explicitly importing from react-router-dom to resolve potential type/member export issues.
 import { Link, useLocation } from 'react-router-dom';
 import { useAppStore } from '../context/Store';
 import { 
@@ -12,7 +14,8 @@ import {
   X,
   Moon,
   Sun,
-  ClipboardList
+  ClipboardList,
+  Globe
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -20,7 +23,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { isDarkMode, toggleTheme } = useAppStore();
+  const { isDarkMode, toggleTheme, backendOnline } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
 
@@ -34,7 +37,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Admin', icon: Settings, path: '/admin' },
   ];
 
-  // Custom Logo Component
   const Logo = () => (
     <div className="flex items-center gap-3 select-none">
       <div className="relative flex items-center justify-center">
@@ -71,8 +73,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </div>
       <div className="flex flex-col justify-center h-full">
         <div className="flex items-baseline tracking-tight leading-none">
-          <span className="text-xl font-bold text-zinc-900 dark:text-white">Inventory</span>
-          <span className="text-xl font-bold text-blue-600 dark:text-blue-500">Management</span>
+          <span className="text-xl font-bold text-zinc-900 dark:text-white">Jupiter</span>
+          <span className="text-xl font-bold text-blue-600 dark:text-blue-500 ml-1">WMS</span>
         </div>
       </div>
     </div>
@@ -106,6 +108,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </nav>
 
       <div className="p-4 border-t border-gray-100 dark:border-zinc-800 space-y-4">
+        {/* Backend Status Indicator */}
+        <div className="px-4 py-2 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Globe className="w-3.5 h-3.5 text-zinc-400" />
+              <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">VPS Connection</span>
+            </div>
+            <div className={`w-2 h-2 rounded-full animate-pulse ${backendOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'}`}></div>
+          </div>
+          <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 mt-1">
+            {backendOnline ? 'Connected to 178.128.106.33' : 'Offline / Protocol Blocked'}
+          </p>
+        </div>
+
         {/* Theme Toggle */}
         <button 
           onClick={toggleTheme}
@@ -120,8 +136,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             JD
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">John Doe</p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">Warehouse Mgr</p>
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">Administrator</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">Warehouse System</p>
           </div>
         </div>
       </div>
@@ -172,8 +188,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <p>&copy; 2024 Jupiter Systems Inc.</p>
             <div className="flex space-x-4 mt-2 md:mt-0">
               <span>v1.0.2</span>
-              <span>Privacy</span>
-              <span>Terms</span>
+              <span>System Online</span>
             </div>
           </div>
         </footer>

@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { generateAIResponse } from '../services/geminiService';
-import { Send, Bot, User, Sparkles, AlertTriangle } from 'lucide-react';
+import { Send, Bot, User, Sparkles } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -18,10 +18,6 @@ const AiAssistant: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Gunakan window.process secara eksplisit agar aman di browser
-  const apiKey = (window as any).process?.env?.API_KEY;
-  const hasApiKey = apiKey && apiKey !== "undefined" && apiKey.length > 10;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -67,16 +63,6 @@ const AiAssistant: React.FC = () => {
         </h1>
         <p className="text-zinc-500 dark:text-zinc-400">Ask questions about your inventory, stock levels, or history.</p>
       </div>
-
-      {!hasApiKey && (
-        <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center gap-3 text-amber-800 dark:text-amber-200 text-sm">
-          <AlertTriangle className="w-5 h-5 shrink-0" />
-          <div className="flex-1">
-            <p className="font-bold">API Key Gemini Belum Aktif</p>
-            <p className="text-xs opacity-80">Fitur AI tidak akan merespon. Silakan tambahkan variabel <strong>API_KEY</strong> di dashboard Vercel Anda.</p>
-          </div>
-        </div>
-      )}
 
       <div className="flex-1 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col overflow-hidden transition-colors">
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50/50 dark:bg-black/20">
@@ -127,13 +113,13 @@ const AiAssistant: React.FC = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={!hasApiKey || isLoading}
-              placeholder={hasApiKey ? "Tanya sesuatu tentang gudang..." : "AI dinonaktifkan (Butuh API Key)"}
+              disabled={isLoading}
+              placeholder="Tanya sesuatu tentang gudang..."
               className="w-full pl-4 pr-12 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:bg-white dark:focus:bg-zinc-900 resize-none h-[60px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 transition-colors disabled:opacity-50"
             />
             <button 
               onClick={handleSend}
-              disabled={!input.trim() || isLoading || !hasApiKey}
+              disabled={!input.trim() || isLoading}
               className="absolute right-2 top-2 p-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-4 h-4" />

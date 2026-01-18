@@ -1,4 +1,6 @@
+
 import React from 'react';
+// Explicitly importing standard v6 routing components from react-router-dom.
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/Store';
 import Layout from './components/Layout';
