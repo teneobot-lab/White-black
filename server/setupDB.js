@@ -36,8 +36,7 @@ async function setup() {
       CREATE TABLE IF NOT EXISTS transactions (
         id VARCHAR(50) PRIMARY KEY, transactionId VARCHAR(100), type VARCHAR(50),
         date DATETIME, items JSON, supplierName VARCHAR(255), poNumber VARCHAR(100),
-        riNumber VARCHAR(100), sjNumber VARCHAR(100), totalItems DECIMAL(15,2), photos JSON,
-        INDEX idx_date (date)
+        riNumber VARCHAR(100), sjNumber VARCHAR(100), totalItems DECIMAL(15,2), photos JSON
       )
     `);
 
@@ -53,17 +52,21 @@ async function setup() {
     console.log('🛠 Membuat tabel reject_logs...');
     await conn.query(`
       CREATE TABLE IF NOT EXISTS reject_logs (
-        id VARCHAR(50) PRIMARY KEY, date DATE, items JSON, notes TEXT, timestamp DATETIME,
-        INDEX idx_timestamp (timestamp)
+        id VARCHAR(50) PRIMARY KEY, date DATE, items JSON, notes TEXT, timestamp DATETIME
       )
     `);
 
-    // Tambahkan index jika tabel sudah ada sebelumnya
-    console.log('🛠 Memastikan Indexing aktif...');
-    await conn.query(`ALTER TABLE transactions ADD INDEX IF NOT EXISTS idx_date (date)`).catch(() => {});
-    await conn.query(`ALTER TABLE reject_logs ADD INDEX IF NOT EXISTS idx_timestamp (timestamp)`).catch(() => {});
+    // Tambahkan index secara eksplisit jika belum ada
+    console.log('🛠 Mengoptimalkan Indexing (IDX_DATE & IDX_TIMESTAMP)...');
+    try {
+      await conn.query(`CREATE INDEX idx_date ON transactions(date)`);
+    } catch (e) { /* Index mungkin sudah ada */ }
+    
+    try {
+      await conn.query(`CREATE INDEX idx_timestamp ON reject_logs(timestamp)`);
+    } catch (e) { /* Index mungkin sudah ada */ }
 
-    console.log('✨ Setup Database Selesai dengan Indexing!');
+    console.log('✨ Setup Database Selesai dengan Indexing Aktif!');
   } catch (err) {
     console.error('❌ Error Setup:', err.message);
   } finally {

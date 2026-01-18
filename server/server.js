@@ -10,6 +10,12 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// Request Logger Middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // Konfigurasi Pool Koneksi
 const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
@@ -17,9 +23,8 @@ const pool = mysql.createPool({
   password: process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'jupiter_wms',
   waitForConnections: true,
-  connectionLimit: 15,
+  connectionLimit: 10,
   queueLimit: 0,
-  // Menghindari sort buffer error pada query besar secara global di session ini
   multipleStatements: true
 });
 
@@ -41,20 +46,15 @@ const safeParse = (data) => {
 const router = express.Router();
 
 router.get('/sync', async (req, res) => {
+  let conn;
   try {
-    // Jalankan query secara paralel untuk kecepatan
-    const [
-      [itemsRows],
-      [transactionsRows],
-      [rejectMasterRows],
-      [rejectLogsRows]
-    ] = await Promise.all([
-      pool.query('SELECT * FROM items'),
-      // Limit dikurangi ke 300 untuk keamanan sort_buffer_size
-      pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 300'),
-      pool.query('SELECT * FROM reject_master'),
-      pool.query('SELECT * FROM reject_logs ORDER BY timestamp DESC LIMIT 200')
-    ]);
+    conn = await pool.getConnection();
+    await conn.query('SET SESSION sort_buffer_size = 1048576'); // 1MB
+
+    const [itemsRows] = await conn.query('SELECT * FROM items');
+    const [transactionsRows] = await conn.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 150');
+    const [rejectMasterRows] = await conn.query('SELECT * FROM reject_master');
+    const [rejectLogsRows] = await conn.query('SELECT * FROM reject_logs ORDER BY timestamp DESC LIMIT 100');
     
     const normalizedTransactions = (transactionsRows || []).map(trx => ({
       ...trx,
@@ -70,10 +70,9 @@ router.get('/sync', async (req, res) => {
     });
   } catch (err) {
     console.error('API Sync Error:', err.message);
-    if (err.message.includes('sort memory')) {
-      console.error('TIPS: Jalankan "ALTER TABLE transactions ADD INDEX (date)" di MySQL console Anda.');
-    }
-    res.status(500).json({ error: "Gagal memuat data: Masalah memori pada database. Silakan coba lagi atau kurangi volume data." });
+    res.status(500).json({ error: "Gagal memuat data dari database: " + err.message });
+  } finally {
+    if (conn) conn.release();
   }
 });
 
@@ -202,47 +201,10 @@ router.delete('/transactions/:id', async (req, res) => {
   } finally { conn.release(); }
 });
 
-router.post('/reject-logs', async (req, res) => {
-  try {
-    const d = req.body;
-    await pool.query(
-      'INSERT INTO reject_logs (id, date, items, notes, timestamp) VALUES (?, ?, ?, ?, ?)',
-      [d.id || generateId(), d.date, JSON.stringify(d.items), d.notes, new Date()]
-    );
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/reject-master/sync', async (req, res) => {
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-    const { items } = req.body;
-    await conn.query('DELETE FROM reject_master');
-    if (items && items.length > 0) {
-      const vals = items.map(i => [i.id || generateId(), i.sku, i.name, i.baseUnit, i.unit2, i.ratio2, i.unit3, i.ratio3, new Date()]);
-      await conn.query('INSERT INTO reject_master (id, sku, name, baseUnit, unit2, ratio2, unit3, ratio3, lastUpdated) VALUES ?', [vals]);
-    }
-    await conn.commit();
-    res.json({ success: true });
-  } catch (err) {
-    await conn.rollback();
-    res.status(500).json({ error: err.message });
-  } finally { conn.release(); }
-});
-
-router.delete('/reset-database', async (req, res) => {
-  try {
-    await pool.query('TRUNCATE TABLE transactions');
-    await pool.query('TRUNCATE TABLE items');
-    await pool.query('TRUNCATE TABLE reject_logs');
-    await pool.query('TRUNCATE TABLE reject_master');
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.use('/api', router);
-app.get('/', (req, res) => res.json({ status: "Jupiter Backend Online", version: "1.2.1" }));
+
+// Health Check
+app.get('/', (req, res) => res.json({ status: "Jupiter Backend Online", version: "1.2.3" }));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Jupiter Server Berjalan di Port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Jupiter Server Aktif di Port ${PORT}`));

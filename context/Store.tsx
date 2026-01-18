@@ -57,13 +57,16 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   }, [isDarkMode]);
 
   const updateApiUrl = (newUrl: string) => {
-    localStorage.setItem('jupiter_api_url', newUrl);
-    setApiUrl(newUrl);
+    // Normalisasi: Hapus trailing slash jika ada
+    const normalized = newUrl.endsWith('/') ? newUrl.slice(0, -1) : newUrl;
+    localStorage.setItem('jupiter_api_url', normalized);
+    setApiUrl(normalized);
   };
 
   const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
     try {
-      const res = await fetch(`${url}/sync`, { method: 'GET' });
+      const base = url.endsWith('/') ? url.slice(0, -1) : url;
+      const res = await fetch(`${base}/sync`, { method: 'GET' });
       if (res.ok) return { success: true, message: "Koneksi Berhasil!" };
       return { success: false, message: `Server merespon error: ${res.status}` };
     } catch (e: any) {
@@ -100,18 +103,20 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const fetchData = async () => {
     try {
-      const res = await fetch(`${apiUrl}/sync`);
-      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+      const base = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+      const targetUrl = `${base}/sync`;
+      
+      const res = await fetch(targetUrl);
+      if (!res.ok) {
+        throw new Error(`HTTP Error: ${res.status} at ${targetUrl}`);
+      }
+      
       const data = await res.json();
 
-      // Sanitasi Mendalam: Pastikan tidak ada field yang null/undefined yang bisa merusak komponen
       const cleanedTransactions = (data.transactions || []).map((t: any) => ({
         ...t,
-        id: t.id || Math.random().toString(36).substr(2, 9),
-        transactionId: t.transactionId || 'TRX-UNK',
         items: safeJsonParse(t.items),
         photos: safeJsonParse(t.photos),
-        date: t.date || new Date().toISOString()
       }));
 
       setItems((data.items || []).map(mapItem));
@@ -124,7 +129,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setBackendOnline(true);
       setLastError(null);
     } catch (e: any) {
-      console.error("Fetch Data Error:", e.message);
+      console.warn("Fetch Error Details:", e.message);
       setBackendOnline(false);
       setLastError(e.message);
     }
