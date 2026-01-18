@@ -23,6 +23,8 @@ interface AppContextType {
   isDarkMode: boolean;
   toggleTheme: () => void;
   backendOnline: boolean;
+  lastError: string | null;
+  refreshData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -34,6 +36,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [rejectLogs, setRejectLogs] = useState<RejectLog[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const mapItem = (dbItem: any): Item => ({
     id: dbItem.id,
@@ -52,12 +55,20 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const fetchData = async () => {
     try {
-      console.log("Menghubungkan ke database VPS...");
+      setLastError(null);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 detik timeout
+
       const res = await fetch(`${API_BASE}/sync`, {
-        // Mode no-cors terkadang membantu mendiagnosa tapi fetch butuh cors
-        mode: 'cors'
+        method: 'GET',
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
       });
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      
+      clearTimeout(timeoutId);
+
+      if (!res.ok) throw new Error(`Server merespon dengan status: ${res.status}`);
+      
       const data = await res.json();
       
       setItems((data.items || []).map(mapItem));
@@ -65,22 +76,23 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setRejectMasterData(data.rejectMaster || []);
       setRejectLogs(data.rejectLogs || []);
       setBackendOnline(true);
-      console.log("Sinkronisasi Berhasil!");
-    } catch (e) { 
+      setLastError(null);
+    } catch (e: any) { 
       setBackendOnline(false);
-      console.error("Gagal terhubung ke VPS.");
-      console.warn("TIPS: Jika Anda menggunakan Vercel (HTTPS), izinkan 'Insecure Content' di setelan browser untuk IP VPS Anda (HTTP).");
-      
-      // Fallback data kosong agar UI tidak blank
-      setItems([]);
-      setTransactions([]);
+      if (e.name === 'AbortError') {
+        setLastError("Request Timeout: VPS tidak merespon dalam 8 detik.");
+      } else if (window.location.protocol === 'https:' && API_BASE.startsWith('http:')) {
+        setLastError("Blokir Keamanan: Browser memblokir koneksi HTTP di situs HTTPS. Klik ikon gembok di URL bar > Site Settings > Allow Insecure Content.");
+      } else {
+        setLastError(`Koneksi Gagal: ${e.message || "Cek apakah VPS menyalakan API di port 5000"}`);
+      }
+      console.error("Database Error:", e);
     }
   };
 
   useEffect(() => {
     fetchData();
-    // Auto sync setiap 60 detik
-    const interval = setInterval(fetchData, 60000);
+    const interval = setInterval(fetchData, 30000); // Sync setiap 30 detik
     return () => clearInterval(interval);
   }, []);
 
@@ -188,7 +200,8 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       addItem, addItems, updateItem, deleteItem,
       processTransaction, deleteTransaction, updateTransaction: () => true,
       addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
-      updateRejectMaster, isDarkMode, toggleTheme, backendOnline
+      updateRejectMaster, isDarkMode, toggleTheme, backendOnline, lastError,
+      refreshData: fetchData
     }}>
       {children}
     </AppContext.Provider>

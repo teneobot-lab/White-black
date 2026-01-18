@@ -1,6 +1,5 @@
 
 import React, { useState } from 'react';
-// Explicitly importing from react-router-dom to resolve potential type/member export issues.
 import { Link, useLocation } from 'react-router-dom';
 import { useAppStore } from '../context/Store';
 import { 
@@ -15,7 +14,9 @@ import {
   Moon,
   Sun,
   ClipboardList,
-  Globe
+  Globe,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -23,8 +24,9 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { isDarkMode, toggleTheme, backendOnline } = useAppStore();
+  const { isDarkMode, toggleTheme, backendOnline, lastError, refreshData } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showTroubleshoot, setShowTroubleshoot] = useState(false);
   const location = useLocation();
 
   const navItems = [
@@ -109,17 +111,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       <div className="p-4 border-t border-gray-100 dark:border-zinc-800 space-y-4">
         {/* Backend Status Indicator */}
-        <div className="px-4 py-2 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-100 dark:border-zinc-800">
+        <div className={`px-4 py-3 rounded-lg border transition-all ${backendOnline ? 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-100 dark:border-zinc-800' : 'bg-red-50 dark:bg-red-900/10 border-red-100 dark:border-red-900/20'}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Globe className="w-3.5 h-3.5 text-zinc-400" />
-              <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">VPS Connection</span>
+              <Globe className={`w-3.5 h-3.5 ${backendOnline ? 'text-zinc-400' : 'text-red-400'}`} />
+              <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">VPS Database</span>
             </div>
-            <div className={`w-2 h-2 rounded-full animate-pulse ${backendOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           </div>
-          <p className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300 mt-1">
-            {backendOnline ? 'Connected to 178.128.106.33' : 'Offline / Protocol Blocked'}
+          <p className={`text-[11px] font-medium mt-1 ${backendOnline ? 'text-zinc-600 dark:text-zinc-300' : 'text-red-600 dark:text-red-400'}`}>
+            {backendOnline ? 'Connected (178.128.106.33)' : 'Connection Failed'}
           </p>
+          {!backendOnline && (
+            <button 
+              onClick={() => setShowTroubleshoot(true)}
+              className="mt-2 text-[10px] font-bold text-blue-600 dark:text-blue-400 underline flex items-center gap-1"
+            >
+              <AlertCircle className="w-3 h-3" /> Fix Connection
+            </button>
+          )}
         </div>
 
         {/* Theme Toggle */}
@@ -133,11 +143,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <div className="flex items-center space-x-3 px-4 py-2 pt-0">
           <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-xs font-bold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-            JD
+            AD
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">Administrator</p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">Warehouse System</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">Jupiter WMS v1.2</p>
           </div>
         </div>
       </div>
@@ -146,6 +156,48 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 flex transition-colors duration-200">
+      {/* Troubleshoot Modal */}
+      {showTroubleshoot && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <AlertCircle className="w-6 h-6" />
+                <h3 className="text-lg font-bold">Koneksi VPS Gagal</h3>
+              </div>
+              <div className="space-y-4 text-sm text-zinc-600 dark:text-zinc-400">
+                <p className="font-semibold text-zinc-900 dark:text-zinc-100">Penyebab Umum:</p>
+                <div className="bg-zinc-50 dark:bg-zinc-800/50 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 font-mono text-xs text-red-500">
+                  {lastError || "Unknown connection error."}
+                </div>
+                <p>Karena VPS Anda menggunakan <b>HTTP</b> (bukan HTTPS), browser sering memblokirnya.</p>
+                <p className="font-bold text-zinc-900 dark:text-zinc-100">Cara Memperbaiki:</p>
+                <ol className="list-decimal list-inside space-y-2">
+                  <li>Klik <b>ikon gembok</b> di sebelah kiri URL bar browser Anda.</li>
+                  <li>Klik <b>"Site Settings"</b>.</li>
+                  <li>Cari <b>"Insecure content"</b> dan ubah menjadi <b>"Allow"</b>.</li>
+                  <li>Refresh halaman ini.</li>
+                </ol>
+              </div>
+              <div className="mt-8 flex gap-3">
+                <button 
+                  onClick={() => setShowTroubleshoot(false)}
+                  className="flex-1 px-4 py-2 border border-zinc-200 dark:border-zinc-800 rounded-xl font-bold text-sm"
+                >
+                  Tutup
+                </button>
+                <button 
+                  onClick={() => { refreshData(); setShowTroubleshoot(false); }}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" /> Coba Lagi
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
@@ -187,8 +239,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center text-xs text-zinc-400 dark:text-zinc-500">
             <p>&copy; 2024 Jupiter Systems Inc.</p>
             <div className="flex space-x-4 mt-2 md:mt-0">
-              <span>v1.0.2</span>
-              <span>System Online</span>
+              <span>System: {backendOnline ? 'CONNECTED' : 'OFFLINE'}</span>
+              <span>v1.2.0</span>
             </div>
           </div>
         </footer>
