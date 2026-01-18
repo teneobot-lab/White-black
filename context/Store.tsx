@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
@@ -11,6 +10,7 @@ interface AppContextType {
   addItems: (items: (Omit<Item, 'id'> & { id?: string })[]) => void;
   updateItem: (item: Item) => void;
   deleteItem: (id: string) => void;
+  bulkDeleteItems: (ids: string[]) => Promise<void>;
   processTransaction: (type: TransactionType, cart: CartItem[], details: any) => Promise<boolean>;
   updateTransaction: (transaction: Transaction) => boolean;
   deleteTransaction: (id: string) => void;
@@ -26,6 +26,7 @@ interface AppContextType {
   apiUrl: string;
   updateApiUrl: (url: string) => void;
   testConnection: (url: string) => Promise<{success: boolean, message: string}>;
+  resetDatabase: () => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -148,6 +149,17 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     } catch (e) { console.error(e); }
   };
 
+  const bulkDeleteItems = async (ids: string[]) => {
+    try {
+      const res = await fetch(`${apiUrl}/items/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      if (res.ok) fetchData();
+    } catch (e) { console.error(e); }
+  };
+
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
     try {
       const res = await fetch(`${apiUrl}/transactions`, {
@@ -189,16 +201,30 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     } catch (e) { console.error(e); }
   };
 
+  const resetDatabase = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiUrl}/reset-database`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchData();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  };
+
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   return (
     <AppContext.Provider value={{ 
       items, transactions, rejectMasterData, rejectLogs, 
-      addItem, addItems, updateItem, deleteItem,
+      addItem, addItems, updateItem, deleteItem, bulkDeleteItems,
       processTransaction, deleteTransaction, updateTransaction: () => true,
       addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
       updateRejectMaster, isDarkMode, toggleTheme, backendOnline, lastError,
-      refreshData: fetchData, apiUrl, updateApiUrl, testConnection
+      refreshData: fetchData, apiUrl, updateApiUrl, testConnection, resetDatabase
     }}>
       {children}
     </AppContext.Provider>

@@ -5,7 +5,7 @@ import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, Ale
 import { read, utils, writeFile } from 'xlsx';
 
 const Inventory: React.FC = () => {
-  const { items, addItem, addItems, updateItem, deleteItem } = useAppStore();
+  const { items, addItem, addItems, updateItem, deleteItem, bulkDeleteItems } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -13,11 +13,16 @@ const Inventory: React.FC = () => {
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Bulk Delete State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   // Debounce Effect
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
-    }, 300); // 300ms delay
+      // Reset selection when search changes for safety
+      setSelectedIds(new Set());
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
@@ -53,6 +58,39 @@ const Inventory: React.FC = () => {
       addItem(formData as Omit<Item, 'id'>);
     }
     setIsModalOpen(false);
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.size === filteredItems.length && filteredItems.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredItems.map(i => i.id)));
+    }
+  };
+
+  const handleToggleSelectItem = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedIds(next);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (window.confirm(`Are you sure you want to delete ${selectedIds.size} items? This cannot be undone.`)) {
+      try {
+        await bulkDeleteItems(Array.from(selectedIds));
+        setSelectedIds(new Set());
+        setNotification({ type: 'success', message: 'Selected items deleted successfully.' });
+        setTimeout(() => setNotification(null), 3000);
+      } catch (e) {
+        setNotification({ type: 'error', message: 'Failed to delete selected items.' });
+        setTimeout(() => setNotification(null), 3000);
+      }
+    }
   };
 
   const downloadTemplate = () => {
@@ -91,7 +129,6 @@ const Inventory: React.FC = () => {
       let errorCount = 0;
 
       jsonData.forEach((row: any) => {
-        // Basic mapping validation
         if (!row.SKU || !row.Name) {
           errorCount++;
           return;
@@ -123,14 +160,10 @@ const Inventory: React.FC = () => {
       setNotification({ type: 'error', message: 'Failed to parse Excel file.' });
     }
 
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
-    
-    // Clear notification after 3s
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // Helper to cleanly display multi-unit stock
   const formatStockDisplay = (item: Item) => {
     if (!item.conversionRate || item.conversionRate <= 1 || !item.secondaryUnit) {
       return (
@@ -169,7 +202,6 @@ const Inventory: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Sticky Header Section */}
       <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
@@ -177,6 +209,14 @@ const Inventory: React.FC = () => {
             <p className="text-zinc-500 dark:text-zinc-400">Manage your products and stock levels.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {selectedIds.size > 0 && (
+              <button 
+                onClick={handleBulkDelete}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 shadow-sm animate-in zoom-in duration-200"
+              >
+                <Trash2 className="w-4 h-4" /> Delete {selectedIds.size} Items
+              </button>
+            )}
             <button 
               onClick={downloadTemplate}
               className="px-3 py-2 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors flex items-center gap-2"
@@ -203,7 +243,6 @@ const Inventory: React.FC = () => {
           </div>
         </div>
 
-        {/* Toolbar */}
         <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col sm:flex-row gap-4 transition-colors">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
@@ -220,7 +259,6 @@ const Inventory: React.FC = () => {
           </button>
         </div>
         
-        {/* Notification Toast */}
         {notification && (
           <div className={`mt-2 p-3 rounded-lg flex items-center gap-2 text-sm animate-fade-in ${
             notification.type === 'success' 
@@ -233,12 +271,19 @@ const Inventory: React.FC = () => {
         )}
       </div>
 
-      {/* Table */}
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden flex flex-col max-h-[calc(100vh-250px)] transition-colors">
         <div className="overflow-auto scroll-smooth">
           <table className="w-full text-sm text-left relative">
             <thead className="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400 font-medium border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 shadow-sm">
               <tr>
+                <th className="px-6 py-3 w-10">
+                  <input 
+                    type="checkbox" 
+                    className="rounded text-zinc-900 dark:text-zinc-100 focus:ring-zinc-900 dark:focus:ring-zinc-500 w-4 h-4 cursor-pointer"
+                    checked={filteredItems.length > 0 && selectedIds.size === filteredItems.length}
+                    onChange={handleToggleSelectAll}
+                  />
+                </th>
                 <th className="px-6 py-3">Item Details</th>
                 <th className="px-6 py-3">Category</th>
                 <th className="px-6 py-3">Location</th>
@@ -250,7 +295,18 @@ const Inventory: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {filteredItems.map((item) => (
-                <tr key={item.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group">
+                <tr 
+                  key={item.id} 
+                  className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group ${selectedIds.has(item.id) ? 'bg-zinc-50 dark:bg-zinc-800/20' : ''}`}
+                >
+                  <td className="px-6 py-4">
+                    <input 
+                      type="checkbox" 
+                      className="rounded text-zinc-900 dark:text-zinc-100 focus:ring-zinc-900 dark:focus:ring-zinc-500 w-4 h-4 cursor-pointer"
+                      checked={selectedIds.has(item.id)}
+                      onChange={() => handleToggleSelectItem(item.id)}
+                    />
+                  </td>
                   <td className="px-6 py-4">
                     <p className="font-medium text-zinc-900 dark:text-zinc-100">{item.name}</p>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{item.sku}</p>
@@ -403,7 +459,6 @@ const Inventory: React.FC = () => {
                   />
                 </div>
                 
-                {/* Secondary Unit / Conversion Section */}
                 <div className="md:col-span-2 grid grid-cols-2 gap-4 border-t border-dashed border-zinc-200 dark:border-zinc-800 pt-4 mt-2">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Secondary Unit (e.g., Box)</label>

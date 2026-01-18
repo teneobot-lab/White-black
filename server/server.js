@@ -20,9 +20,10 @@ const pool = mysql.createPool({
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-// --- ROUTES (Tanpa prefix /api karena dihandle oleh Proxy/Admin URL) ---
+// --- API ROUTES WITH /api PREFIX ---
+const router = express.Router();
 
-app.get('/sync', async (req, res) => {
+router.get('/sync', async (req, res) => {
   try {
     const [items] = await pool.query('SELECT * FROM items');
     const [transactions] = await pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 200');
@@ -34,7 +35,7 @@ app.get('/sync', async (req, res) => {
   }
 });
 
-app.post('/items', async (req, res) => {
+router.post('/items', async (req, res) => {
   try {
     const d = req.body;
     const id = d.id || generateId();
@@ -48,7 +49,7 @@ app.post('/items', async (req, res) => {
   }
 });
 
-app.put('/items/:id', async (req, res) => {
+router.put('/items/:id', async (req, res) => {
   try {
     const d = req.body;
     await pool.query(
@@ -61,7 +62,7 @@ app.put('/items/:id', async (req, res) => {
   }
 });
 
-app.delete('/items/:id', async (req, res) => {
+router.delete('/items/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM items WHERE id=?', [req.params.id]);
     res.json({ success: true });
@@ -70,7 +71,21 @@ app.delete('/items/:id', async (req, res) => {
   }
 });
 
-app.post('/transactions', async (req, res) => {
+// Endpoint baru untuk bulk delete items
+router.post('/items/bulk-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.json({ success: true, message: 'No IDs provided' });
+    }
+    await pool.query('DELETE FROM items WHERE id IN (?)', [ids]);
+    res.json({ success: true, count: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/transactions', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -94,7 +109,7 @@ app.post('/transactions', async (req, res) => {
   }
 });
 
-app.delete('/transactions/:id', async (req, res) => {
+router.delete('/transactions/:id', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -117,7 +132,7 @@ app.delete('/transactions/:id', async (req, res) => {
   }
 });
 
-app.post('/reject-logs', async (req, res) => {
+router.post('/reject-logs', async (req, res) => {
   try {
     const d = req.body;
     await pool.query(
@@ -130,7 +145,7 @@ app.post('/reject-logs', async (req, res) => {
   }
 });
 
-app.post('/reject-master/sync', async (req, res) => {
+router.post('/reject-master/sync', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -150,5 +165,29 @@ app.post('/reject-master/sync', async (req, res) => {
   }
 });
 
+router.delete('/reset-database', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query('TRUNCATE TABLE transactions');
+    await connection.query('TRUNCATE TABLE items');
+    await connection.query('TRUNCATE TABLE reject_logs');
+    await connection.query('TRUNCATE TABLE reject_master');
+    await connection.commit();
+    res.json({ success: true, message: 'Database has been reset successfully.' });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// Pasang router ke prefix /api
+app.use('/api', router);
+
+// Health check untuk root (opsional)
+app.get('/', (req, res) => res.send('Jupiter API is running...'));
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Jupiter Server Aktif di port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Jupiter Server Aktif di port ${PORT} dengan prefix /api`));
