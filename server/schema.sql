@@ -1,8 +1,6 @@
--- Inisialisasi Database
 CREATE DATABASE IF NOT EXISTS jupiter_wms;
 USE jupiter_wms;
 
--- Tabel Inventory
 CREATE TABLE IF NOT EXISTS items (
     id VARCHAR(50) PRIMARY KEY,
     sku VARCHAR(100) UNIQUE,
@@ -18,7 +16,6 @@ CREATE TABLE IF NOT EXISTS items (
     secondary_unit VARCHAR(50)
 );
 
--- Tabel Transaksi (Inbound/Outbound)
 CREATE TABLE IF NOT EXISTS transactions (
     id VARCHAR(50) PRIMARY KEY,
     transactionId VARCHAR(100) NOT NULL,
@@ -33,7 +30,6 @@ CREATE TABLE IF NOT EXISTS transactions (
     photos JSON
 );
 
--- Tabel Master Reject
 CREATE TABLE IF NOT EXISTS reject_master (
     id VARCHAR(50) PRIMARY KEY,
     sku VARCHAR(100),
@@ -46,7 +42,6 @@ CREATE TABLE IF NOT EXISTS reject_master (
     lastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabel Log Reject
 CREATE TABLE IF NOT EXISTS reject_logs (
     id VARCHAR(50) PRIMARY KEY,
     date DATE,
