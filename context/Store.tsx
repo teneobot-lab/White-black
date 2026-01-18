@@ -25,6 +25,7 @@ interface AppContextType {
   refreshData: () => Promise<void>;
   apiUrl: string;
   updateApiUrl: (url: string) => void;
+  testConnection: (url: string) => Promise<{success: boolean, message: string}>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -38,12 +39,27 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [backendOnline, setBackendOnline] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   
-  // Load API URL from localStorage or default to proxy path
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "/api");
 
   const updateApiUrl = (newUrl: string) => {
     localStorage.setItem('jupiter_api_url', newUrl);
     setApiUrl(newUrl);
+  };
+
+  const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${url}/sync`, { method: 'GET', signal: controller.signal });
+      clearTimeout(timeoutId);
+      
+      if (res.status === 200) return { success: true, message: "Koneksi Berhasil!" };
+      if (res.status === 502) return { success: false, message: "Error 502: Backend VPS Anda mati atau tidak aktif." };
+      if (res.status === 504) return { success: false, message: "Error 504: Koneksi ke VPS Timeout." };
+      return { success: false, message: `Error ${res.status}: ${res.statusText}` };
+    } catch (e: any) {
+      return { success: false, message: e.name === 'AbortError' ? "Koneksi Timeout (8s)" : `Gagal: ${e.message}` };
+    }
   };
 
   const mapItem = (dbItem: any): Item => ({
@@ -63,7 +79,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const fetchData = async () => {
     try {
-      setLastError(null);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -75,10 +90,13 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       
       clearTimeout(timeoutId);
 
-      if (!res.ok) throw new Error(`Server Error: ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 502) throw new Error("Backend VPS Tidak Aktif (Error 502)");
+        if (res.status === 504) throw new Error("Gateway Timeout (Error 504)");
+        throw new Error(`Server Error: ${res.status}`);
+      }
       
       const data = await res.json();
-      
       setItems((data.items || []).map(mapItem));
       setTransactions(data.transactions || []);
       setRejectMasterData(data.rejectMaster || []);
@@ -87,8 +105,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setLastError(null);
     } catch (e: any) { 
       setBackendOnline(false);
-      console.error("Connection Error:", e);
-      setLastError(e.name === 'AbortError' ? "Koneksi Timeout" : `Error: ${e.message}`);
+      setLastError(e.name === 'AbortError' ? "Koneksi Timeout" : e.message);
     }
   };
 
@@ -96,7 +113,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     fetchData();
     const interval = setInterval(fetchData, 45000);
     return () => clearInterval(interval);
-  }, [apiUrl]); // Re-fetch if API URL changes
+  }, [apiUrl]);
 
   const addItem = async (newItem: Omit<Item, 'id'>) => {
     try {
@@ -181,7 +198,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       processTransaction, deleteTransaction, updateTransaction: () => true,
       addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
       updateRejectMaster, isDarkMode, toggleTheme, backendOnline, lastError,
-      refreshData: fetchData, apiUrl, updateApiUrl
+      refreshData: fetchData, apiUrl, updateApiUrl, testConnection
     }}>
       {children}
     </AppContext.Provider>
