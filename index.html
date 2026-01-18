@@ -1,9 +1,18 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jupiter WMS</title>
+    <!-- Polyfill for process.env to prevent blank screen -->
+    <script>
+      window.process = {
+        env: {
+          API_KEY: "" // Akan diisi otomatis oleh environment atau tetap kosong jika tidak ada
+        }
+      };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -47,7 +56,6 @@
       }
     </script>
     <style>
-      /* Custom scrollbar for Webkit */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;

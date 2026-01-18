@@ -6,16 +6,16 @@ export const generateAIResponse = async (
   prompt: string, 
   contextData: { items: Item[], transactions: Transaction[] }
 ): Promise<string> => {
-  const apiKey = process.env.API_KEY;
+  // Pengecekan aman untuk variabel lingkungan
+  const apiKey = window.process?.env?.API_KEY || "";
 
   if (!apiKey || apiKey === "undefined" || apiKey.length < 10) {
-    return "Error: API Key Gemini belum dikonfigurasi di Environment Variables Vercel.";
+    return "Error: API Key Gemini belum dikonfigurasi. Silakan tambahkan di Environment Variables Vercel.";
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey: apiKey });
 
-    // Prepare context for the AI
     const lowStockItems = contextData.items.filter(i => i.currentStock <= i.minLevel);
     const contextSummary = `
       Current System State:
@@ -26,10 +26,7 @@ export const generateAIResponse = async (
 
     const systemInstruction = `
       You are Jupiter, an intelligent warehouse assistant. 
-      You help users manage inventory, analyze trends, and answer questions about the WMS.
-      Be concise, professional, and helpful. 
-      Use the provided context data to answer questions about stock levels or history.
-      If you don't know the answer, say so politely.
+      You help users manage inventory and analyze warehouse data.
     `;
 
     const response = await ai.models.generateContent({
@@ -43,6 +40,6 @@ export const generateAIResponse = async (
     return response.text || "I couldn't generate a response.";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "Maaf, terjadi kesalahan saat menghubungi AI. Pastikan API Key valid.";
+    return "Maaf, terjadi kesalahan API. Periksa console untuk detail.";
   }
 };

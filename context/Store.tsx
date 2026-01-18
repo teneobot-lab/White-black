@@ -2,7 +2,6 @@
 import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
-// GANTI DENGAN IP VPS ANDA
 const API_BASE = "http://178.128.106.33:5000/api";
 
 interface AppContextType {
@@ -34,7 +33,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [rejectLogs, setRejectLogs] = useState<RejectLog[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
-  // Helper untuk memetakan data database (snake_case) ke frontend (camelCase)
   const mapItem = (dbItem: any): Item => ({
     id: dbItem.id,
     sku: dbItem.sku,
@@ -52,17 +50,19 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const fetchData = async () => {
     try {
+      console.log("Attempting to sync with backend...");
       const res = await fetch(`${API_BASE}/sync`);
-      if (!res.ok) throw new Error("Server response not ok");
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
       
       setItems((data.items || []).map(mapItem));
       setTransactions(data.transactions || []);
       setRejectMasterData(data.rejectMaster || []);
       setRejectLogs(data.rejectLogs || []);
+      console.log("Sync success!");
     } catch (e) { 
-      console.error("Fetch error:", e);
-      // Inisialisasi dengan array kosong jika gagal agar aplikasi tidak blank
+      console.error("Fetch error - Check if browser blocked Mixed Content:", e);
+      // Fallback arrays to prevent blank screen
       setItems([]);
       setTransactions([]);
     }
@@ -75,33 +75,19 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const addItem = async (newItem: Omit<Item, 'id'>) => {
     const id = Math.random().toString(36).substr(2, 9);
     const itemWithId = { ...newItem, id } as Item;
-    
-    // Optimistic update
     setItems(prev => [...prev, itemWithId]);
-
     try {
       await fetch(`${API_BASE}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...itemWithId,
-          min_level: itemWithId.minLevel,
-          current_stock: itemWithId.currentStock,
-          conversion_rate: itemWithId.conversionRate,
-          secondary_unit: itemWithId.secondaryUnit
-        })
+        body: JSON.stringify({ ...itemWithId, min_level: itemWithId.minLevel, current_stock: itemWithId.currentStock })
       });
       fetchData();
-    } catch (e) {
-      console.error("Failed to add item", e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const addItems = async (newItems: (Omit<Item, 'id'> & { id?: string })[]) => {
-    // Implementasi bulk import
-    for (const item of newItems) {
-      await addItem(item as Omit<Item, 'id'>);
-    }
+    for (const item of newItems) { await addItem(item as Omit<Item, 'id'>); }
   };
 
   const updateItem = async (updatedItem: Item) => {
@@ -110,11 +96,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       await fetch(`${API_BASE}/items/${updatedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...updatedItem,
-          min_level: updatedItem.minLevel,
-          current_stock: updatedItem.currentStock
-        })
+        body: JSON.stringify({ ...updatedItem, min_level: updatedItem.minLevel, current_stock: updatedItem.currentStock })
       });
     } catch (e) { console.error(e); }
   };
@@ -138,7 +120,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
     const newTrx = {
       id: Math.random().toString(36).substr(2, 9),
-      transactionId: `TRX-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+      transactionId: `TRX-${Date.now().toString().slice(-6)}`,
       type,
       date: new Date().toISOString(),
       items: cart,
@@ -150,20 +132,11 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       const res = await fetch(`${API_BASE}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          trx: newTrx, 
-          items_update: updatedItems.map(i => ({ id: i.id, currentStock: i.currentStock }))
-        })
+        body: JSON.stringify({ trx: newTrx, items_update: updatedItems.map(i => ({ id: i.id, currentStock: i.currentStock })) })
       });
-      if (res.ok) {
-        fetchData();
-        return true;
-      }
+      if (res.ok) { fetchData(); return true; }
       return false;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
+    } catch (e) { console.error(e); return false; }
   };
 
   const deleteTransaction = async (id: string) => {
@@ -173,7 +146,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     } catch (e) { console.error(e); }
   };
 
-  // Reject Module Functions
   const addRejectLog = async (log: RejectLog) => {
     try {
       await fetch(`${API_BASE}/reject-logs`, {
