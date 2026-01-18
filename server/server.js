@@ -18,11 +18,11 @@ const pool = mysql.createPool({
   connectionLimit: 10
 });
 
-// --- HELPER ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-// --- ENDPOINT SINKRONISASI ---
-app.get('/api/sync', async (req, res) => {
+// --- ROUTES (Tanpa prefix /api karena dihandle oleh Proxy/Admin URL) ---
+
+app.get('/sync', async (req, res) => {
   try {
     const [items] = await pool.query('SELECT * FROM items');
     const [transactions] = await pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 200');
@@ -34,8 +34,7 @@ app.get('/api/sync', async (req, res) => {
   }
 });
 
-// --- ENDPOINT ITEMS ---
-app.post('/api/items', async (req, res) => {
+app.post('/items', async (req, res) => {
   try {
     const d = req.body;
     const id = d.id || generateId();
@@ -49,7 +48,7 @@ app.post('/api/items', async (req, res) => {
   }
 });
 
-app.put('/api/items/:id', async (req, res) => {
+app.put('/items/:id', async (req, res) => {
   try {
     const d = req.body;
     await pool.query(
@@ -62,7 +61,7 @@ app.put('/api/items/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/items/:id', async (req, res) => {
+app.delete('/items/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM items WHERE id=?', [req.params.id]);
     res.json({ success: true });
@@ -71,26 +70,20 @@ app.delete('/api/items/:id', async (req, res) => {
   }
 });
 
-// --- ENDPOINT TRANSACTIONS (WITH STOCK UPDATE) ---
-app.post('/api/transactions', async (req, res) => {
+app.post('/transactions', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const { trx, items_update } = req.body;
     const trxId = generateId();
-
-    // 1. Insert Transaction Record
     await connection.query(
       'INSERT INTO transactions (id, transactionId, type, date, items, supplierName, poNumber, riNumber, sjNumber, totalItems, photos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [trxId, trx.transactionId || `TRX-${Date.now()}`, trx.type, new Date(), JSON.stringify(trx.items), trx.supplierName, trx.poNumber, trx.riNumber, trx.sjNumber, trx.items.reduce((a, b) => a + b.quantity, 0), JSON.stringify(trx.photos || [])]
     );
-
-    // 2. Update Stocks
     for (const item of items_update) {
       const adjustment = item.type === 'Inbound' ? item.quantity : -item.quantity;
       await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [adjustment, item.id]);
     }
-
     await connection.commit();
     res.json({ success: true, id: trxId });
   } catch (err) {
@@ -101,27 +94,19 @@ app.post('/api/transactions', async (req, res) => {
   }
 });
 
-app.delete('/api/transactions/:id', async (req, res) => {
+app.delete('/transactions/:id', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    
-    // 1. Get Transaction Data to Revert Stocks
     const [rows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
     if (rows.length === 0) throw new Error('Transaction not found');
-    
     const trx = rows[0];
     const items = typeof trx.items === 'string' ? JSON.parse(trx.items) : trx.items;
-
-    // 2. Revert Stocks (Inverse of previous adjustment)
     for (const item of items) {
       const adjustment = trx.type === 'Inbound' ? -item.quantity : item.quantity;
       await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [adjustment, item.itemId]);
     }
-
-    // 3. Delete Transaction
     await connection.query('DELETE FROM transactions WHERE id = ?', [req.params.id]);
-
     await connection.commit();
     res.json({ success: true });
   } catch (err) {
@@ -132,8 +117,7 @@ app.delete('/api/transactions/:id', async (req, res) => {
   }
 });
 
-// --- ENDPOINT REJECT MODULE ---
-app.post('/api/reject-logs', async (req, res) => {
+app.post('/reject-logs', async (req, res) => {
   try {
     const d = req.body;
     await pool.query(
@@ -146,26 +130,16 @@ app.post('/api/reject-logs', async (req, res) => {
   }
 });
 
-app.post('/api/reject-master/sync', async (req, res) => {
+app.post('/reject-master/sync', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const { items } = req.body;
-
-    // 1. Clear existing master
     await connection.query('DELETE FROM reject_master');
-
-    // 2. Bulk insert new master
     if (items.length > 0) {
-      const values = items.map(i => [
-        i.id || generateId(), i.sku, i.name, i.baseUnit, i.unit2, i.ratio2, i.unit3, i.ratio3, new Date()
-      ]);
-      await connection.query(
-        'INSERT INTO reject_master (id, sku, name, baseUnit, unit2, ratio2, unit3, ratio3, lastUpdated) VALUES ?',
-        [values]
-      );
+      const values = items.map(i => [i.id || generateId(), i.sku, i.name, i.baseUnit, i.unit2, i.ratio2, i.unit3, i.ratio3, new Date()]);
+      await connection.query('INSERT INTO reject_master (id, sku, name, baseUnit, unit2, ratio2, unit3, ratio3, lastUpdated) VALUES ?', [values]);
     }
-
     await connection.commit();
     res.json({ success: true });
   } catch (err) {
@@ -177,4 +151,4 @@ app.post('/api/reject-master/sync', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Jupiter Server Full-Feature Aktif di port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Jupiter Server Aktif di port ${PORT}`));
