@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { CartItem, Item } from '../types';
-import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X, Box, Layers } from 'lucide-react';
 
 const Transactions: React.FC = () => {
   const { items, processTransaction } = useAppStore();
@@ -15,7 +15,10 @@ const Transactions: React.FC = () => {
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   
-  const [quantity, setQuantity] = useState(1);
+  // Selection State
+  const [quantity, setQuantity] = useState<number | string>(''); // Clear by default
+  const [selectedUnit, setSelectedUnit] = useState<'base' | 'secondary'>('base');
+  
   const [details, setDetails] = useState({ supplierName: '', poNumber: '', riNumber: '', sjNumber: '' });
   const [photos, setPhotos] = useState<string[]>([]);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
@@ -31,6 +34,14 @@ const Transactions: React.FC = () => {
     (item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
      item.sku.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  // Reset selection when tab changes
+  useEffect(() => {
+    setSelectedItem(null);
+    setSearchTerm('');
+    setQuantity('');
+    setSelectedUnit('base');
+  }, [activeTab]);
 
   // Keyboard Navigation for Autocomplete
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
@@ -54,6 +65,16 @@ const Transactions: React.FC = () => {
     setSelectedItem(item);
     setSearchTerm(`${item.sku} - ${item.name}`);
     setIsDropdownOpen(false);
+    
+    // Recommendation Logic: 
+    // Inbound -> Suggest Secondary (Large) if available
+    // Outbound -> Suggest Base (Small)
+    if (activeTab === 'Inbound' && item.secondaryUnit && item.conversionRate && item.conversionRate > 1) {
+      setSelectedUnit('secondary');
+    } else {
+      setSelectedUnit('base');
+    }
+
     // Move focus to quantity
     setTimeout(() => qtyInputRef.current?.focus(), 10);
   };
@@ -68,30 +89,62 @@ const Transactions: React.FC = () => {
   const addToCart = () => {
     if (!selectedItem) return;
 
-    if (activeTab === 'Outbound' && quantity > selectedItem.currentStock) {
-      setMessage({ type: 'error', text: `Cannot add ${quantity}. Only ${selectedItem.currentStock} available.` });
+    const qtyValue = parseFloat(quantity.toString());
+    if (isNaN(qtyValue) || qtyValue <= 0) {
+      // Allow user to correct input
+      return;
+    }
+
+    let finalQty = qtyValue;
+    let displayUnit = selectedItem.unit;
+    let displayInputQty = qtyValue;
+
+    // Calculate base quantity if secondary unit selected
+    if (selectedUnit === 'secondary' && selectedItem.secondaryUnit && selectedItem.conversionRate) {
+      finalQty = qtyValue * selectedItem.conversionRate;
+      displayUnit = selectedItem.secondaryUnit;
+    }
+
+    if (activeTab === 'Outbound' && finalQty > selectedItem.currentStock) {
+      setMessage({ type: 'error', text: `Cannot add ${displayInputQty} ${displayUnit}. Only ${selectedItem.currentStock} ${selectedItem.unit} available.` });
       return;
     }
 
     const existing = cart.find(c => c.itemId === selectedItem.id);
     if (existing) {
-       if (activeTab === 'Outbound' && (existing.quantity + quantity) > selectedItem.currentStock) {
+       if (activeTab === 'Outbound' && (existing.quantity + finalQty) > selectedItem.currentStock) {
          setMessage({ type: 'error', text: 'Total quantity would exceed stock!' });
          return;
        }
-       setCart(cart.map(c => c.itemId === selectedItem.id ? { ...c, quantity: c.quantity + quantity } : c));
+       
+       // If adding same unit, keep the display unit. If mixed, fallback to base.
+       let newInputQty = undefined;
+       let newInputUnit = undefined;
+       if (existing.inputUnit === displayUnit) {
+           newInputQty = (existing.inputQuantity || 0) + displayInputQty;
+           newInputUnit = displayUnit;
+       }
+
+       setCart(cart.map(c => c.itemId === selectedItem.id ? { 
+           ...c, 
+           quantity: c.quantity + finalQty,
+           inputQuantity: newInputQty,
+           inputUnit: newInputUnit
+       } : c));
     } else {
       setCart([...cart, { 
         itemId: selectedItem.id, 
         itemName: selectedItem.name, 
         sku: selectedItem.sku, 
-        quantity,
-        currentStock: selectedItem.currentStock
+        quantity: finalQty,
+        currentStock: selectedItem.currentStock,
+        inputQuantity: displayInputQty,
+        inputUnit: displayUnit
       }]);
     }
     
     // Reset inputs and focus back to search for rapid entry
-    setQuantity(1);
+    setQuantity('');
     setSelectedItem(null);
     setSearchTerm('');
     setMessage(null);
@@ -125,15 +178,13 @@ const Transactions: React.FC = () => {
       return;
     }
 
-    if (activeTab === 'Inbound' && (!details.supplierName || !details.riNumber)) {
-      setMessage({ type: 'error', text: 'Supplier Name and RI Number are required' });
+    // Validation relaxed based on user request
+    if (activeTab === 'Inbound' && !details.supplierName) {
+      setMessage({ type: 'error', text: 'Supplier Name is required' });
       return;
     }
 
-    if (activeTab === 'Outbound' && !details.sjNumber) {
-      setMessage({ type: 'error', text: 'Surat Jalan (SJ) Number is required' });
-      return;
-    }
+    // Outbound validation for SJ removed (optional)
 
     const success = processTransaction(activeTab, cart, { ...details, photos });
     
@@ -174,6 +225,12 @@ const Transactions: React.FC = () => {
     return `Stock: ${item.currentStock} ${item.unit}`;
   };
 
+  // Helper to get base unit from cart item
+  const getCartItemBaseUnit = (cartItem: CartItem) => {
+      const originalItem = items.find(i => i.id === cartItem.itemId);
+      return originalItem ? originalItem.unit : 'units';
+  };
+
   return (
     <div className="space-y-6">
       {/* Sticky Header */}
@@ -211,8 +268,9 @@ const Transactions: React.FC = () => {
               <Plus className="w-4 h-4" /> Add Items to Cart
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="md:col-span-3 relative">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+              {/* Search Field */}
+              <div className="md:col-span-2 relative">
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Select Item</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" />
@@ -262,15 +320,43 @@ const Transactions: React.FC = () => {
                 )}
               </div>
 
+              {/* Unit Selection */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Unit 
+                  {selectedItem?.secondaryUnit && (
+                      <span className="text-[10px] ml-1 text-blue-600 dark:text-blue-400 font-normal">
+                          {activeTab === 'Inbound' ? '(Recommended: Large)' : '(Recommended: Small)'}
+                      </span>
+                  )}
+                </label>
+                <div className="relative">
+                  <select
+                    disabled={!selectedItem || !selectedItem.secondaryUnit}
+                    value={selectedUnit}
+                    onChange={(e) => setSelectedUnit(e.target.value as 'base' | 'secondary')}
+                    className="w-full pl-3 pr-8 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed appearance-none"
+                  >
+                     <option value="base">{selectedItem ? selectedItem.unit : 'Unit'}</option>
+                     {selectedItem?.secondaryUnit && (
+                         <option value="secondary">{selectedItem.secondaryUnit}</option>
+                     )}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Quantity */}
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Qty</label>
                 <input 
                   ref={qtyInputRef}
                   type="number" 
-                  min="1"
-                  className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                  step="any"
+                  placeholder="0"
+                  className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 0))}
+                  onChange={(e) => setQuantity(e.target.value)}
                   onKeyDown={handleQtyKeyDown}
                 />
               </div>
@@ -310,7 +396,7 @@ const Transactions: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Receive Item (RI) No *</label>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Delivery Note (Optional)</label>
                     <input 
                       type="text" 
                       className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
@@ -330,7 +416,7 @@ const Transactions: React.FC = () => {
                 </>
               ) : (
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Surat Jalan (SJ) No *</label>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Surat Jalan (SJ) No (Optional)</label>
                   <input 
                     type="text" 
                     className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
@@ -400,9 +486,25 @@ const Transactions: React.FC = () => {
                       <p className="text-xs text-zinc-500 dark:text-zinc-400">{item.sku}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold bg-white dark:bg-zinc-900 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100">
-                        {item.quantity}
-                      </span>
+                      <div className="text-right">
+                         {item.inputQuantity && item.inputUnit ? (
+                             <div className="flex flex-col items-end">
+                                 <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                                     {item.inputQuantity} {item.inputUnit}
+                                 </span>
+                                 {/* Only show calculated base units if the unit is secondary */}
+                                 {item.inputUnit !== getCartItemBaseUnit(item) && (
+                                     <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                                         = {item.quantity} {getCartItemBaseUnit(item)}
+                                     </span>
+                                 )}
+                             </div>
+                         ) : (
+                             <span className="text-sm font-bold bg-white dark:bg-zinc-900 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100">
+                                {item.quantity} {getCartItemBaseUnit(item)}
+                             </span>
+                         )}
+                      </div>
                       <button 
                         onClick={() => removeFromCart(item.itemId)}
                         className="text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400"
@@ -417,7 +519,7 @@ const Transactions: React.FC = () => {
 
             <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                <div className="flex justify-between mb-4 text-sm">
-                 <span className="text-zinc-600 dark:text-zinc-400">Total Items</span>
+                 <span className="text-zinc-600 dark:text-zinc-400">Total Base Units</span>
                  <span className="font-bold text-zinc-900 dark:text-white">{cart.reduce((a, b) => a + b.quantity, 0)}</span>
                </div>
                <button 

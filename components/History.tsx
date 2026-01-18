@@ -283,12 +283,16 @@ const History: React.FC = () => {
                     <div className="flex flex-col">
                       {trx.type === 'Inbound' ? (
                         <>
-                           <span className="text-zinc-900 dark:text-zinc-200">{trx.supplierName}</span>
-                           <span className="text-xs text-zinc-400 dark:text-zinc-500">RI: {trx.riNumber}</span>
+                           <span className="text-zinc-900 dark:text-zinc-200">{trx.supplierName || '-'}</span>
+                           <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                             {trx.riNumber ? `DN: ${trx.riNumber}` : '-'}
+                           </span>
                            {trx.poNumber && <span className="text-xs text-zinc-400 dark:text-zinc-500">PO: {trx.poNumber}</span>}
                         </>
                       ) : (
-                        <span className="text-zinc-900 dark:text-zinc-200">SJ: {trx.sjNumber}</span>
+                        <span className="text-zinc-900 dark:text-zinc-200">
+                          {trx.sjNumber ? `SJ: ${trx.sjNumber}` : '-'}
+                        </span>
                       )}
                     </div>
                   </td>
@@ -382,7 +386,7 @@ const History: React.FC = () => {
                         <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" value={editForm.supplierName} onChange={e => setEditForm({...editForm, supplierName: e.target.value})} />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">RI Number</label>
+                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Delivery Note</label>
                         <input className="w-full border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-2 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" value={editForm.riNumber} onChange={e => setEditForm({...editForm, riNumber: e.target.value})} />
                       </div>
                       <div className="col-span-2">

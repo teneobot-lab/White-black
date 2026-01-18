@@ -21,6 +21,8 @@ export interface CartItem {
   sku: string;
   quantity: number;
   currentStock: number; // for validation
+  inputQuantity?: number; // Quantity entered by user (e.g., 2)
+  inputUnit?: string; // Unit selected by user (e.g., Box)
 }
 
 export type TransactionType = 'Inbound' | 'Outbound';
