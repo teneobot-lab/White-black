@@ -37,11 +37,24 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [rejectMasterData, setRejectMasterData] = useState<RejectItem[]>([]);
   const [rejectLogs, setRejectLogs] = useState<RejectLog[]>([]);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('jupiter_theme') === 'dark');
   const [backendOnline, setBackendOnline] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "/api");
+
+  const toggleTheme = () => {
+    setIsDarkMode(prev => !prev);
+  };
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('jupiter_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('jupiter_theme', 'light');
+    }
+  }, [isDarkMode]);
 
   const updateApiUrl = (newUrl: string) => {
     localStorage.setItem('jupiter_api_url', newUrl);
@@ -50,17 +63,11 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(`${url}/sync`, { method: 'GET', signal: controller.signal });
-      clearTimeout(timeoutId);
-      
-      if (res.status === 200) return { success: true, message: "Koneksi Berhasil!" };
-      if (res.status === 502) return { success: false, message: "Error 502: Backend VPS Anda mati atau tidak aktif." };
-      if (res.status === 504) return { success: false, message: "Error 504: Koneksi ke VPS Timeout." };
-      return { success: false, message: `Error ${res.status}: ${res.statusText}` };
+      const res = await fetch(`${url}/sync`, { method: 'GET' });
+      if (res.ok) return { success: true, message: "Koneksi Berhasil!" };
+      return { success: false, message: `Server merespon error: ${res.status}` };
     } catch (e: any) {
-      return { success: false, message: e.name === 'AbortError' ? "Koneksi Timeout (8s)" : `Gagal: ${e.message}` };
+      return { success: false, message: `Gagal: ${e.message}` };
     }
   };
 
@@ -79,94 +86,88 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     secondaryUnit: dbItem.secondary_unit || ''
   });
 
+  // Helper untuk parsing JSON yang aman di sisi klien
+  const safeJsonParse = (val: any) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'string') {
+      try { return JSON.parse(val); } catch (e) { return []; }
+    }
+    return [];
+  };
+
   const fetchData = async () => {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      const res = await fetch(`${apiUrl}/sync`, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' }
-      });
-      
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        if (res.status === 502) throw new Error("Backend VPS Tidak Aktif (Error 502)");
-        if (res.status === 504) throw new Error("Gateway Timeout (Error 504)");
-        throw new Error(`Server Error: ${res.status}`);
-      }
-      
+      const res = await fetch(`${apiUrl}/sync`);
+      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
       const data = await res.json();
 
-      // Normalisasi transaksi ekstra aman di sisi klien
-      const normalizedTransactions = (data.transactions || []).map((t: any) => ({
+      // Sanitasi Transaksi: Menjamin items & photos selalu array, bahkan jika backend mengirim string
+      const cleanedTransactions = (data.transactions || []).map((t: any) => ({
         ...t,
-        items: typeof t.items === 'string' ? JSON.parse(t.items) : (t.items || []),
-        photos: typeof t.photos === 'string' ? JSON.parse(t.photos) : (t.photos || [])
+        items: safeJsonParse(t.items),
+        photos: safeJsonParse(t.photos)
       }));
 
       setItems((data.items || []).map(mapItem));
-      setTransactions(normalizedTransactions);
+      setTransactions(cleanedTransactions);
       setRejectMasterData(data.rejectMaster || []);
-      setRejectLogs(data.rejectLogs || []);
+      setRejectLogs((data.rejectLogs || []).map((l: any) => ({ ...l, items: safeJsonParse(l.items) })));
       setBackendOnline(true);
       setLastError(null);
-    } catch (e: any) { 
+    } catch (e: any) {
       setBackendOnline(false);
-      setLastError(e.name === 'AbortError' ? "Koneksi Timeout" : e.message);
+      setLastError(e.message);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 45000);
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
   }, [apiUrl]);
 
   const addItem = async (newItem: Omit<Item, 'id'>) => {
-    try {
-      const res = await fetch(`${apiUrl}/items`, {
+    await fetch(`${apiUrl}/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newItem)
+    });
+    fetchData();
+  };
+
+  const addItems = async (itemsList: any[]) => {
+    for (const item of itemsList) {
+      await fetch(`${apiUrl}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newItem, min_level: newItem.minLevel, current_stock: newItem.currentStock })
+        body: JSON.stringify(item)
       });
-      if (res.ok) fetchData();
-    } catch (e) { console.error(e); }
+    }
+    fetchData();
   };
 
-  const addItems = async (newItems: (Omit<Item, 'id'> & { id?: string })[]) => {
-    for (const item of newItems) { await addItem(item as Omit<Item, 'id'>); }
-  };
-
-  const updateItem = async (updatedItem: Item) => {
-    try {
-      const res = await fetch(`${apiUrl}/items/${updatedItem.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updatedItem, min_level: updatedItem.minLevel, current_stock: updatedItem.currentStock })
-      });
-      if (res.ok) fetchData();
-    } catch (e) { console.error(e); }
+  const updateItem = async (it: Item) => {
+    await fetch(`${apiUrl}/items/${it.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(it)
+    });
+    fetchData();
   };
 
   const deleteItem = async (id: string) => {
-    try {
-      const res = await fetch(`${apiUrl}/items/${id}`, { method: 'DELETE' });
-      if (res.ok) fetchData();
-    } catch (e) { console.error(e); }
+    await fetch(`${apiUrl}/items/${id}`, { method: 'DELETE' });
+    fetchData();
   };
 
   const bulkDeleteItems = async (ids: string[]) => {
-    try {
-      const res = await fetch(`${apiUrl}/items/bulk-delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids })
-      });
-      if (res.ok) fetchData();
-    } catch (e) { console.error(e); }
+    await fetch(`${apiUrl}/items/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    fetchData();
   };
 
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
@@ -178,71 +179,49 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       });
       if (res.ok) { fetchData(); return true; }
       return false;
-    } catch (e) { console.error(e); return false; }
+    } catch { return false; }
   };
 
-  const updateTransaction = async (updatedTrx: Transaction): Promise<boolean> => {
+  const updateTransaction = async (trx: Transaction): Promise<boolean> => {
     try {
-      const res = await fetch(`${apiUrl}/transactions/${updatedTrx.id}`, {
+      const res = await fetch(`${apiUrl}/transactions/${trx.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedTrx)
+        body: JSON.stringify(trx)
       });
-      if (res.ok) {
-        fetchData();
-        return true;
-      }
+      if (res.ok) { fetchData(); return true; }
       return false;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
+    } catch { return false; }
   };
 
   const deleteTransaction = async (id: string) => {
-    try {
-      await fetch(`${apiUrl}/transactions/${id}`, { method: 'DELETE' });
-      fetchData();
-    } catch (e) { console.error(e); }
+    await fetch(`${apiUrl}/transactions/${id}`, { method: 'DELETE' });
+    fetchData();
   };
 
   const addRejectLog = async (log: RejectLog) => {
-    try {
-      await fetch(`${apiUrl}/reject-logs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(log)
-      });
-      fetchData();
-    } catch (e) { console.error(e); }
+    await fetch(`${apiUrl}/reject-logs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(log)
+    });
+    fetchData();
   };
 
   const updateRejectMaster = async (newList: RejectItem[]) => {
-    try {
-      await fetch(`${apiUrl}/reject-master/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: newList })
-      });
-      fetchData();
-    } catch (e) { console.error(e); }
+    await fetch(`${apiUrl}/reject-master/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: newList })
+    });
+    fetchData();
   };
 
-  const resetDatabase = async (): Promise<boolean> => {
-    try {
-      const res = await fetch(`${apiUrl}/reset-database`, { method: 'DELETE' });
-      if (res.ok) {
-        await fetchData();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
+  const resetDatabase = async () => {
+    const res = await fetch(`${apiUrl}/reset-database`, { method: 'DELETE' });
+    if (res.ok) { fetchData(); return true; }
+    return false;
   };
-
-  const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   return (
     <AppContext.Provider value={{ 
