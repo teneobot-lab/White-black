@@ -21,17 +21,52 @@ const pool = mysql.createPool({
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-// --- API ROUTES WITH /api PREFIX ---
+// Helper untuk memastikan data JSON di-parse dengan aman
+const safeParse = (data) => {
+  if (!data) return [];
+  if (typeof data === 'object') return data;
+  try {
+    return JSON.parse(data);
+  } catch (e) {
+    return [];
+  }
+};
+
+// --- API ROUTES ---
 const router = express.Router();
+
+router.get('/', (req, res) => {
+  res.json({ status: 'API Router is active', version: '1.2.1' });
+});
 
 router.get('/sync', async (req, res) => {
   try {
-    const [items] = await pool.query('SELECT * FROM items');
-    const [transactions] = await pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 200');
-    const [rejectMaster] = await pool.query('SELECT * FROM reject_master');
-    const [rejectLogs] = await pool.query('SELECT * FROM reject_logs ORDER BY timestamp DESC');
-    res.json({ items, transactions, rejectMaster, rejectLogs });
+    const [itemsRows] = await pool.query('SELECT * FROM items').catch(() => [[]]);
+    const [transactionsRows] = await pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 200').catch(() => [[]]);
+    const [rejectMasterRows] = await pool.query('SELECT * FROM reject_master').catch(() => [[]]);
+    const [rejectLogsRows] = await pool.query('SELECT * FROM reject_logs ORDER BY timestamp DESC').catch(() => [[]]);
+    
+    // Normalisasi data transaksi agar items dan photos selalu berupa Array/Object
+    const normalizedTransactions = transactionsRows.map(trx => ({
+      ...trx,
+      items: safeParse(trx.items),
+      photos: safeParse(trx.photos)
+    }));
+
+    // Normalisasi reject logs
+    const normalizedRejectLogs = rejectLogsRows.map(log => ({
+      ...log,
+      items: safeParse(log.items)
+    }));
+
+    res.json({ 
+      items: itemsRows || [], 
+      transactions: normalizedTransactions, 
+      rejectMaster: rejectMasterRows || [], 
+      rejectLogs: normalizedRejectLogs 
+    });
   } catch (err) {
+    console.error('Sync Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -116,30 +151,31 @@ router.put('/transactions/:id', async (req, res) => {
   try {
     await connection.beginTransaction();
     
-    // 1. Ambil data transaksi lama untuk revert stok
     const [oldRows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
     if (oldRows.length === 0) throw new Error('Transaction not found');
     const oldTrx = oldRows[0];
-    const oldItems = typeof oldTrx.items === 'string' ? JSON.parse(oldTrx.items) : oldTrx.items;
     
-    // Revert stok lama
+    // Pastikan items lama di-parse untuk proses revert stok
+    const oldItems = safeParse(oldTrx.items);
+    
+    // 1. Revert stok lama
     for (const item of oldItems) {
       const revertAdj = oldTrx.type === 'Inbound' ? -item.quantity : item.quantity;
       await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [revertAdj, item.itemId]);
     }
 
-    // 2. Update data transaksi dengan data baru dari body
-    const trx = req.body;
-    const trxDate = trx.date ? new Date(trx.date) : new Date(oldTrx.date);
-    const totalItems = trx.items.reduce((a, b) => a + b.quantity, 0);
+    const trxData = req.body;
+    const trxDate = trxData.date ? new Date(trxData.date) : new Date(oldTrx.date);
+    const totalItems = trxData.items.reduce((a, b) => a + b.quantity, 0);
 
+    // 2. Update data transaksi
     await connection.query(
       'UPDATE transactions SET date=?, items=?, supplierName=?, poNumber=?, riNumber=?, sjNumber=?, totalItems=?, photos=? WHERE id=?',
-      [trxDate, JSON.stringify(trx.items), trx.supplierName, trx.poNumber, trx.riNumber, trx.sjNumber, totalItems, JSON.stringify(trx.photos || []), req.params.id]
+      [trxDate, JSON.stringify(trxData.items), trxData.supplierName, trxData.poNumber, trxData.riNumber, trxData.sjNumber, totalItems, JSON.stringify(trxData.photos || []), req.params.id]
     );
 
-    // 3. Apply stok baru
-    for (const item of trx.items) {
+    // 3. Terapkan stok baru
+    for (const item of trxData.items) {
       const newAdj = oldTrx.type === 'Inbound' ? item.quantity : -item.quantity;
       await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [newAdj, item.itemId]);
     }
@@ -148,6 +184,7 @@ router.put('/transactions/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     await connection.rollback();
+    console.error('Update Transaction Error:', err);
     res.status(500).json({ error: err.message });
   } finally {
     connection.release();
@@ -161,11 +198,14 @@ router.delete('/transactions/:id', async (req, res) => {
     const [rows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
     if (rows.length === 0) throw new Error('Transaction not found');
     const trx = rows[0];
-    const items = typeof trx.items === 'string' ? JSON.parse(trx.items) : trx.items;
+    const items = safeParse(trx.items);
+    
+    // Kembalikan stok saat transaksi dihapus
     for (const item of items) {
       const adjustment = trx.type === 'Inbound' ? -item.quantity : item.quantity;
       await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [adjustment, item.itemId]);
     }
+    
     await connection.query('DELETE FROM transactions WHERE id = ?', [req.params.id]);
     await connection.commit();
     res.json({ success: true });
@@ -196,7 +236,7 @@ router.post('/reject-master/sync', async (req, res) => {
     await connection.beginTransaction();
     const { items } = req.body;
     await connection.query('DELETE FROM reject_master');
-    if (items.length > 0) {
+    if (items && items.length > 0) {
       const values = items.map(i => [i.id || generateId(), i.sku, i.name, i.baseUnit, i.unit2, i.ratio2, i.unit3, i.ratio3, new Date()]);
       await connection.query('INSERT INTO reject_master (id, sku, name, baseUnit, unit2, ratio2, unit3, ratio3, lastUpdated) VALUES ?', [values]);
     }
@@ -228,11 +268,14 @@ router.delete('/reset-database', async (req, res) => {
   }
 });
 
-// Pasang router ke prefix /api
 app.use('/api', router);
 
-// Health check untuk root (opsional)
-app.get('/', (req, res) => res.send('Jupiter API is running...'));
+app.get('/', (req, res) => {
+  res.send('Jupiter WMS Backend is running successfully.');
+});
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Jupiter Server Aktif di port ${PORT} dengan prefix /api`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Jupiter Backend Aktif di port ${PORT}`);
+  console.log(`📡 API URL: http://localhost:${PORT}/api`);
+});

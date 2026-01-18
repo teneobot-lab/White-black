@@ -99,8 +99,16 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       }
       
       const data = await res.json();
+
+      // Normalisasi transaksi ekstra aman di sisi klien
+      const normalizedTransactions = (data.transactions || []).map((t: any) => ({
+        ...t,
+        items: typeof t.items === 'string' ? JSON.parse(t.items) : (t.items || []),
+        photos: typeof t.photos === 'string' ? JSON.parse(t.photos) : (t.photos || [])
+      }));
+
       setItems((data.items || []).map(mapItem));
-      setTransactions(data.transactions || []);
+      setTransactions(normalizedTransactions);
       setRejectMasterData(data.rejectMaster || []);
       setRejectLogs(data.rejectLogs || []);
       setBackendOnline(true);
@@ -134,7 +142,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const updateItem = async (updatedItem: Item) => {
     try {
-      // Fix: Change updatedItem.current_stock to updatedItem.currentStock
       const res = await fetch(`${apiUrl}/items/${updatedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
