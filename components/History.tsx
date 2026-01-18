@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppStore } from '../context/Store';
 import { Transaction, CartItem } from '../types';
@@ -142,7 +143,7 @@ const History: React.FC = () => {
     setIsAddItemDropdownOpen(false);
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTrx) return;
 
@@ -161,9 +162,11 @@ const History: React.FC = () => {
       items: editForm.items
     };
 
-    const success = updateTransaction(updated);
+    const success = await updateTransaction(updated);
     if (success) {
       setEditingTrx(null);
+    } else {
+      alert("Gagal memperbarui transaksi. Silakan periksa koneksi atau stok barang.");
     }
   };
 

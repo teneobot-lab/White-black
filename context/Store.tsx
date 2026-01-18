@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
@@ -12,7 +13,7 @@ interface AppContextType {
   deleteItem: (id: string) => void;
   bulkDeleteItems: (ids: string[]) => Promise<void>;
   processTransaction: (type: TransactionType, cart: CartItem[], details: any) => Promise<boolean>;
-  updateTransaction: (transaction: Transaction) => boolean;
+  updateTransaction: (transaction: Transaction) => Promise<boolean>;
   deleteTransaction: (id: string) => void;
   addRejectLog: (log: RejectLog) => void;
   updateRejectLog: (log: RejectLog) => void;
@@ -133,6 +134,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const updateItem = async (updatedItem: Item) => {
     try {
+      // Fix: Change updatedItem.current_stock to updatedItem.currentStock
       const res = await fetch(`${apiUrl}/items/${updatedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -170,6 +172,24 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       if (res.ok) { fetchData(); return true; }
       return false;
     } catch (e) { console.error(e); return false; }
+  };
+
+  const updateTransaction = async (updatedTrx: Transaction): Promise<boolean> => {
+    try {
+      const res = await fetch(`${apiUrl}/transactions/${updatedTrx.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTrx)
+      });
+      if (res.ok) {
+        fetchData();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
   };
 
   const deleteTransaction = async (id: string) => {
@@ -221,7 +241,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     <AppContext.Provider value={{ 
       items, transactions, rejectMasterData, rejectLogs, 
       addItem, addItems, updateItem, deleteItem, bulkDeleteItems,
-      processTransaction, deleteTransaction, updateTransaction: () => true,
+      processTransaction, deleteTransaction, updateTransaction,
       addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
       updateRejectMaster, isDarkMode, toggleTheme, backendOnline, lastError,
       refreshData: fetchData, apiUrl, updateApiUrl, testConnection, resetDatabase

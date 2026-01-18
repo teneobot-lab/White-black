@@ -91,7 +91,6 @@ router.post('/transactions', async (req, res) => {
     await connection.beginTransaction();
     const { trx, items_update } = req.body;
     const trxId = generateId();
-    // Gunakan tanggal dari client jika ada, jika tidak gunakan waktu sekarang
     const trxDate = trx.date ? new Date(trx.date) : new Date();
     
     await connection.query(
@@ -104,6 +103,49 @@ router.post('/transactions', async (req, res) => {
     }
     await connection.commit();
     res.json({ success: true, id: trxId });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+router.put('/transactions/:id', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    
+    // 1. Ambil data transaksi lama untuk revert stok
+    const [oldRows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
+    if (oldRows.length === 0) throw new Error('Transaction not found');
+    const oldTrx = oldRows[0];
+    const oldItems = typeof oldTrx.items === 'string' ? JSON.parse(oldTrx.items) : oldTrx.items;
+    
+    // Revert stok lama
+    for (const item of oldItems) {
+      const revertAdj = oldTrx.type === 'Inbound' ? -item.quantity : item.quantity;
+      await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [revertAdj, item.itemId]);
+    }
+
+    // 2. Update data transaksi dengan data baru dari body
+    const trx = req.body;
+    const trxDate = trx.date ? new Date(trx.date) : new Date(oldTrx.date);
+    const totalItems = trx.items.reduce((a, b) => a + b.quantity, 0);
+
+    await connection.query(
+      'UPDATE transactions SET date=?, items=?, supplierName=?, poNumber=?, riNumber=?, sjNumber=?, totalItems=?, photos=? WHERE id=?',
+      [trxDate, JSON.stringify(trx.items), trx.supplierName, trx.poNumber, trx.riNumber, trx.sjNumber, totalItems, JSON.stringify(trx.photos || []), req.params.id]
+    );
+
+    // 3. Apply stok baru
+    for (const item of trx.items) {
+      const newAdj = oldTrx.type === 'Inbound' ? item.quantity : -item.quantity;
+      await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [newAdj, item.itemId]);
+    }
+
+    await connection.commit();
+    res.json({ success: true });
   } catch (err) {
     await connection.rollback();
     res.status(500).json({ error: err.message });
