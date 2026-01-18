@@ -17,16 +17,14 @@ const pool = mysql.createPool({
   password: process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'jupiter_wms',
   waitForConnections: true,
-  connectionLimit: 20,
-  queueLimit: 0
+  connectionLimit: 15,
+  queueLimit: 0,
+  // Menghindari sort buffer error pada query besar secara global di session ini
+  multipleStatements: true
 });
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-/**
- * HELPER: Memastikan data JSON selalu berupa ARRAY.
- * Sangat penting karena mysql2 mengembalikan data berbeda-beda tergantung tipe kolom.
- */
 const safeParse = (data) => {
   if (!data) return [];
   if (Array.isArray(data)) return data;
@@ -34,10 +32,7 @@ const safeParse = (data) => {
     try {
       const parsed = JSON.parse(data);
       return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
-    } catch (e) {
-      console.error("Gagal parsing string ke JSON:", e.message);
-      return [];
-    }
+    } catch (e) { return []; }
   }
   if (typeof data === 'object') return [data];
   return [];
@@ -45,16 +40,22 @@ const safeParse = (data) => {
 
 const router = express.Router();
 
-// --- 1. SYNC ENDPOINT (Jantung dari aplikasi) ---
 router.get('/sync', async (req, res) => {
   try {
-    const [itemsRows] = await pool.query('SELECT * FROM items');
-    // Ambil limit lebih banyak untuk history agar terlihat semua
-    const [transactionsRows] = await pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 500');
-    const [rejectMasterRows] = await pool.query('SELECT * FROM reject_master');
-    const [rejectLogsRows] = await pool.query('SELECT * FROM reject_logs ORDER BY timestamp DESC');
+    // Jalankan query secara paralel untuk kecepatan
+    const [
+      [itemsRows],
+      [transactionsRows],
+      [rejectMasterRows],
+      [rejectLogsRows]
+    ] = await Promise.all([
+      pool.query('SELECT * FROM items'),
+      // Limit dikurangi ke 300 untuk keamanan sort_buffer_size
+      pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 300'),
+      pool.query('SELECT * FROM reject_master'),
+      pool.query('SELECT * FROM reject_logs ORDER BY timestamp DESC LIMIT 200')
+    ]);
     
-    // Normalisasi data sebelum dikirim agar Frontend tidak perlu menebak-nebak
     const normalizedTransactions = (transactionsRows || []).map(trx => ({
       ...trx,
       items: safeParse(trx.items),
@@ -68,12 +69,14 @@ router.get('/sync', async (req, res) => {
       rejectLogs: (rejectLogsRows || []).map(l => ({ ...l, items: safeParse(l.items) }))
     });
   } catch (err) {
-    console.error('API Sync Error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('API Sync Error:', err.message);
+    if (err.message.includes('sort memory')) {
+      console.error('TIPS: Jalankan "ALTER TABLE transactions ADD INDEX (date)" di MySQL console Anda.');
+    }
+    res.status(500).json({ error: "Gagal memuat data: Masalah memori pada database. Silakan coba lagi atau kurangi volume data." });
   }
 });
 
-// --- 2. ITEMS MANAGEMENT ---
 router.post('/items', async (req, res) => {
   try {
     const d = req.body;
@@ -113,7 +116,6 @@ router.post('/items/bulk-delete', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- 3. TRANSACTIONS MANAGEMENT (Logic Inbound/Outbound) ---
 router.post('/transactions', async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -122,13 +124,11 @@ router.post('/transactions', async (req, res) => {
     const trxId = generateId();
     const trxDate = trx.date ? new Date(trx.date) : new Date();
     
-    // Simpan Transaksi (Items dikonversi ke String JSON)
     await conn.query(
       'INSERT INTO transactions (id, transactionId, type, date, items, supplierName, poNumber, riNumber, sjNumber, totalItems, photos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [trxId, trx.transactionId || `TRX-${Date.now()}`, trx.type, trxDate, JSON.stringify(trx.items), trx.supplierName, trx.poNumber, trx.riNumber, trx.sjNumber, trx.items.reduce((a, b) => a + (Number(b.quantity) || 0), 0), JSON.stringify(trx.photos || [])]
     );
     
-    // Update Stok di Tabel Items
     for (const item of items_update) {
       const adjustment = item.type === 'Inbound' ? item.quantity : -item.quantity;
       await conn.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [adjustment, item.id]);
@@ -138,7 +138,6 @@ router.post('/transactions', async (req, res) => {
     res.json({ success: true, id: trxId });
   } catch (err) {
     await conn.rollback();
-    console.error("Proses Transaksi Gagal:", err);
     res.status(500).json({ error: err.message });
   } finally { conn.release(); }
 });
@@ -153,7 +152,6 @@ router.put('/transactions/:id', async (req, res) => {
     const oldTrx = rows[0];
     const oldItems = safeParse(oldTrx.items);
     
-    // 1. Revert Stok Lama
     for (const item of oldItems) {
       const revertAdj = oldTrx.type === 'Inbound' ? -(item.quantity || 0) : (item.quantity || 0);
       await conn.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [revertAdj, item.itemId]);
@@ -162,13 +160,11 @@ router.put('/transactions/:id', async (req, res) => {
     const newTrx = req.body;
     const totalItems = (newTrx.items || []).reduce((a, b) => a + (Number(b.quantity) || 0), 0);
     
-    // 2. Update Data Transaksi
     await conn.query(
       'UPDATE transactions SET date=?, items=?, supplierName=?, poNumber=?, riNumber=?, sjNumber=?, totalItems=?, photos=? WHERE id=?',
       [new Date(newTrx.date), JSON.stringify(newTrx.items), newTrx.supplierName, newTrx.poNumber, newTrx.riNumber, newTrx.sjNumber, totalItems, JSON.stringify(newTrx.photos || []), req.params.id]
     );
 
-    // 3. Apply Stok Baru
     for (const item of (newTrx.items || [])) {
       const applyAdj = oldTrx.type === 'Inbound' ? (item.quantity || 0) : -(item.quantity || 0);
       await conn.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [applyAdj, item.itemId]);
@@ -206,7 +202,6 @@ router.delete('/transactions/:id', async (req, res) => {
   } finally { conn.release(); }
 });
 
-// --- 4. REJECT MODULE LOGS ---
 router.post('/reject-logs', async (req, res) => {
   try {
     const d = req.body;
@@ -236,7 +231,6 @@ router.post('/reject-master/sync', async (req, res) => {
   } finally { conn.release(); }
 });
 
-// --- 5. SYSTEM ADMIN ---
 router.delete('/reset-database', async (req, res) => {
   try {
     await pool.query('TRUNCATE TABLE transactions');
@@ -248,13 +242,7 @@ router.delete('/reset-database', async (req, res) => {
 });
 
 app.use('/api', router);
-
-// Root Health Check
-app.get('/', (req, res) => {
-  res.json({ status: "Jupiter Backend is Online", time: new Date() });
-});
+app.get('/', (req, res) => res.json({ status: "Jupiter Backend Online", version: "1.2.1" }));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Jupiter Server Berjalan di Port ${PORT}`);
-});
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Jupiter Server Berjalan di Port ${PORT}`));
