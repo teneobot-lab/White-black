@@ -6,8 +6,8 @@ export const generateAIResponse = async (
   prompt: string, 
   contextData: { items: Item[], transactions: Transaction[] }
 ): Promise<string> => {
-  // Pengecekan aman untuk variabel lingkungan
-  const apiKey = window.process?.env?.API_KEY || "";
+  // Pengecekan aman untuk variabel lingkungan di browser
+  const apiKey = (window as any).process?.env?.API_KEY || "";
 
   if (!apiKey || apiKey === "undefined" || apiKey.length < 10) {
     return "Error: API Key Gemini belum dikonfigurasi. Silakan tambahkan di Environment Variables Vercel.";
