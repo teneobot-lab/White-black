@@ -122,21 +122,54 @@ const History: React.FC = () => {
   const handleExport = () => {
     if (filteredTransactions.length === 0) return;
 
-    const dataToExport = filteredTransactions.map(trx => ({
-      "Transaction ID": trx.transactionId,
-      "Type": trx.type,
-      "Date": new Date(trx.date).toLocaleDateString() + ' ' + new Date(trx.date).toLocaleTimeString(),
-      "Supplier / Recipient": trx.type === 'Inbound' ? trx.supplierName : 'N/A',
-      "Reference No": trx.type === 'Inbound' ? trx.riNumber : trx.sjNumber,
-      "PO Number": trx.poNumber || '-',
-      "Total Items": trx.totalItems,
-      "Items Detail": trx.items.map(i => `${i.quantity}x ${i.itemName} (${i.sku})`).join(', ')
-    }));
-
-    const ws = utils.json_to_sheet(dataToExport);
     const wb = utils.book_new();
-    utils.book_append_sheet(wb, ws, "Transactions");
-    writeFile(wb, `Transaction_History_${new Date().toISOString().split('T')[0]}.xlsx`);
+    let hasData = false;
+
+    // 1. Process Inbound
+    const inboundTrx = filteredTransactions.filter(t => t.type === 'Inbound');
+    if (inboundTrx.length > 0) {
+      // Flatten data: create a row for each item in the transaction to show SKU clearly
+      const inboundData = inboundTrx.flatMap(trx => 
+        trx.items.map(item => ({
+          "Transaction ID": trx.transactionId,
+          "Date": new Date(trx.date).toLocaleDateString() + ' ' + new Date(trx.date).toLocaleTimeString(),
+          "Supplier": trx.supplierName || '-',
+          "Delivery Note": trx.riNumber || '-',
+          "PO Number": trx.poNumber || '-',
+          "SKU": item.sku,
+          "Item Name": item.itemName,
+          "Quantity": item.quantity,
+          "Input Unit": item.inputUnit || '-'
+        }))
+      );
+      const wsIn = utils.json_to_sheet(inboundData);
+      utils.book_append_sheet(wb, wsIn, "Inbound");
+      hasData = true;
+    }
+
+    // 2. Process Outbound
+    const outboundTrx = filteredTransactions.filter(t => t.type === 'Outbound');
+    if (outboundTrx.length > 0) {
+      // Flatten data for Outbound as well
+      const outboundData = outboundTrx.flatMap(trx => 
+        trx.items.map(item => ({
+          "Transaction ID": trx.transactionId,
+          "Date": new Date(trx.date).toLocaleDateString() + ' ' + new Date(trx.date).toLocaleTimeString(),
+          "Surat Jalan (SJ)": trx.sjNumber || '-',
+          "SKU": item.sku,
+          "Item Name": item.itemName,
+          "Quantity": item.quantity,
+          "Input Unit": item.inputUnit || '-'
+        }))
+      );
+      const wsOut = utils.json_to_sheet(outboundData);
+      utils.book_append_sheet(wb, wsOut, "Outbound");
+      hasData = true;
+    }
+
+    if (hasData) {
+      writeFile(wb, `Transaction_History_${new Date().toISOString().split('T')[0]}.xlsx`);
+    }
   };
 
   // --- Modal Item Handlers ---
