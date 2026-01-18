@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAppStore } from '../context/Store';
 import { 
   LayoutDashboard, 
@@ -11,7 +11,8 @@ import {
   Menu,
   X,
   Moon,
-  Sun
+  Sun,
+  ClipboardList
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -21,12 +22,14 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { isDarkMode, toggleTheme } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
 
   const navItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
     { name: 'Inventory', icon: Package, path: '/inventory' },
     { name: 'Transactions', icon: ArrowRightLeft, path: '/transactions' },
     { name: 'History', icon: History, path: '/history' },
+    { name: 'Reject Logs', icon: ClipboardList, path: '/reject' },
     { name: 'AI Assistant', icon: Bot, path: '/ai' },
     { name: 'Admin', icon: Settings, path: '/admin' },
   ];
@@ -46,7 +49,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <path 
             fillRule="evenodd" 
             clipRule="evenodd" 
-            d="M20 5C11.7157 5 5 11.7157 5 20C5 28.2843 11.7157 35 20 35C28.2843 35 35 28.2843 35 20C35 11.7157 28.2843 5 20 5ZM20 10C22.6522 10 25.1957 11.0536 27.0711 12.9289C28.9464 14.8043 30 17.3478 30 20C30 22.6522 28.9464 25.1957 27.0711 27.0711C25.1957 28.9464 22.6522 30 20 30C17.3478 30 14.8043 28.9464 12.9289 27.0711C11.0536 25.1957 10 22.6522 10 20C10 17.3478 11.0536 14.8043 12.9289 12.9289C14.8043 11.0536 17.3478 10 20 10ZM20 15L15 20L20 25L25 20L20 15Z" 
+            d="M20 5C11.7157 5 5 11.7157 5 20C5 28.2843 11.7157 35 20 35C28.2843 35 28.2843 35 20C35 11.7157 28.2843 5 20 5ZM20 10C22.6522 10 25.1957 11.0536 27.0711 12.9289C28.9464 14.8043 30 17.3478 30 20C30 22.6522 28.9464 25.1957 27.0711 27.0711C25.1957 28.9464 22.6522 30 20 30C17.3478 30 14.8043 28.9464 12.9289 27.0711C11.0536 25.1957 10 22.6522 10 20C10 17.3478 11.0536 14.8043 12.9289 12.9289C14.8043 11.0536 17.3478 10 20 10ZM20 15L15 20L20 25L25 20L20 15Z" 
             fill="currentColor" 
             fillOpacity="0.2"
           />
@@ -82,23 +85,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </div>
       
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            onClick={() => setIsSidebarOpen(false)}
-            className={({ isActive }) =>
-              `flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              onClick={() => setIsSidebarOpen(false)}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                   : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
-              }`
-            }
-          >
-            <item.icon className={`w-5 h-5 ${ ({ isActive }: any) => isActive ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400 dark:text-zinc-500' }`} />
-            <span>{item.name}</span>
-          </NavLink>
-        ))}
+              }`}
+            >
+              <item.icon className={`w-5 h-5 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
+              <span>{item.name}</span>
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="p-4 border-t border-gray-100 dark:border-zinc-800 space-y-4">

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, PropsWithChildren } from 'react';
-import { Item, Transaction, TransactionType, CartItem } from '../types';
+import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
 // Mock Data
 const INITIAL_ITEMS: Item[] = [
@@ -23,9 +23,18 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
   }
 ];
 
+const INITIAL_REJECT_MASTER: RejectItem[] = [
+  { id: '1', sku: 'RM-001', name: 'Kardus Rusak', baseUnit: 'kg' },
+  { id: '2', sku: 'RM-002', name: 'Plastik Bekas', baseUnit: 'kg' },
+];
+
 interface AppContextType {
   items: Item[];
   transactions: Transaction[];
+  // Reject Module
+  rejectMasterData: RejectItem[];
+  rejectLogs: RejectLog[];
+  
   addItem: (item: Omit<Item, 'id'>) => void;
   addItems: (items: Omit<Item, 'id'>[]) => void;
   updateItem: (item: Item) => void;
@@ -37,6 +46,13 @@ interface AppContextType {
   ) => boolean;
   updateTransaction: (transaction: Transaction) => boolean;
   deleteTransaction: (id: string) => void;
+  
+  // Reject Actions
+  addRejectLog: (log: RejectLog) => void;
+  updateRejectLog: (log: RejectLog) => void;
+  deleteRejectLog: (id: string) => void;
+  updateRejectMaster: (newList: RejectItem[]) => void;
+
   isDarkMode: boolean;
   toggleTheme: () => void;
 }
@@ -46,6 +62,8 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [items, setItems] = useState<Item[]>(INITIAL_ITEMS);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
+  const [rejectMasterData, setRejectMasterData] = useState<RejectItem[]>(INITIAL_REJECT_MASTER);
+  const [rejectLogs, setRejectLogs] = useState<RejectLog[]>([]);
   
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -63,13 +81,21 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     
     const savedTrx = localStorage.getItem('jupiter_trx');
     if (savedTrx) setTransactions(JSON.parse(savedTrx));
+
+    const savedRejectMaster = localStorage.getItem('jupiter_reject_master');
+    if (savedRejectMaster) setRejectMasterData(JSON.parse(savedRejectMaster));
+
+    const savedRejectLogs = localStorage.getItem('jupiter_reject_logs');
+    if (savedRejectLogs) setRejectLogs(JSON.parse(savedRejectLogs));
   }, []);
 
   // Save on change
   useEffect(() => {
     localStorage.setItem('jupiter_items', JSON.stringify(items));
     localStorage.setItem('jupiter_trx', JSON.stringify(transactions));
-  }, [items, transactions]);
+    localStorage.setItem('jupiter_reject_master', JSON.stringify(rejectMasterData));
+    localStorage.setItem('jupiter_reject_logs', JSON.stringify(rejectLogs));
+  }, [items, transactions, rejectMasterData, rejectLogs]);
 
   // Theme Effects
   useEffect(() => {
@@ -113,7 +139,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     let tempItems = items.map(i => ({...i}));
 
     // 1. Revert Original Transaction Effects
-    // If Inbound: Subtract original qty. If Outbound: Add back original qty.
     for (const oldItem of originalTrx.items) {
       const itemIndex = tempItems.findIndex(i => i.id === oldItem.itemId);
       if (itemIndex > -1) {
@@ -134,7 +159,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
          } else {
             // Outbound check
             if (tempItems[itemIndex].currentStock < newItem.quantity) {
-               // Stock insufficient (likely because we increased outbound qty beyond limits)
                alert(`Insufficient stock for ${newItem.itemName}. Available after revert: ${tempItems[itemIndex].currentStock}`);
                return false;
             }
@@ -217,10 +241,30 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     return true;
   };
 
+  // --- REJECT MODULE FUNCTIONS ---
+  
+  const addRejectLog = (log: RejectLog) => {
+    setRejectLogs([...rejectLogs, log]);
+  };
+
+  const updateRejectLog = (updatedLog: RejectLog) => {
+    setRejectLogs(rejectLogs.map(l => l.id === updatedLog.id ? updatedLog : l));
+  };
+
+  const deleteRejectLog = (id: string) => {
+    setRejectLogs(rejectLogs.filter(l => l.id !== id));
+  };
+
+  const updateRejectMaster = (newList: RejectItem[]) => {
+    setRejectMasterData(newList);
+  };
+
   return (
     <AppContext.Provider value={{ 
       items, 
       transactions, 
+      rejectMasterData,
+      rejectLogs,
       addItem, 
       addItems,
       updateItem, 
@@ -228,6 +272,10 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       processTransaction, 
       updateTransaction,
       deleteTransaction,
+      addRejectLog,
+      updateRejectLog,
+      deleteRejectLog,
+      updateRejectMaster,
       isDarkMode,
       toggleTheme
     }}>

@@ -8,6 +8,7 @@ import Transactions from './components/Transactions';
 import History from './components/History';
 import AiAssistant from './components/AiAssistant';
 import Admin from './components/Admin';
+import RejectManager from './components/RejectManager';
 
 const App: React.FC = () => {
   return (
@@ -19,6 +20,7 @@ const App: React.FC = () => {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/history" element={<History />} />
+            <Route path="/reject" element={<RejectManager />} />
             <Route path="/ai" element={<AiAssistant />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
