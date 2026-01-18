@@ -1,7 +1,8 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { generateAIResponse } from '../services/geminiService';
-import { Send, Bot, User, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Sparkles, AlertTriangle } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -17,6 +18,8 @@ const AiAssistant: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const hasApiKey = process.env.API_KEY && process.env.API_KEY !== "undefined";
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -34,7 +37,6 @@ const AiAssistant: React.FC = () => {
     setInput('');
     setIsLoading(true);
 
-    // Call Gemini Service
     const aiResponseText = await generateAIResponse(input, { items, transactions });
 
     const aiMsg: Message = { 
@@ -64,8 +66,14 @@ const AiAssistant: React.FC = () => {
         <p className="text-zinc-500 dark:text-zinc-400">Ask questions about your inventory, stock levels, or history.</p>
       </div>
 
+      {!hasApiKey && (
+        <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center gap-3 text-amber-800 dark:text-amber-200 text-sm">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <p><strong>Perhatian:</strong> API Key Gemini belum terpasang di Vercel. Fitur AI tidak akan berfungsi sebelum Anda menambahkannya di Dashboard Vercel.</p>
+        </div>
+      )}
+
       <div className="flex-1 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col overflow-hidden transition-colors">
-        {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50/50 dark:bg-black/20">
           {messages.map((msg, idx) => (
             <div 
@@ -108,26 +116,23 @@ const AiAssistant: React.FC = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
         <div className="p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800">
           <div className="relative">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about your inventory (e.g., 'What items are low on stock?')..."
-              className="w-full pl-4 pr-12 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:bg-white dark:focus:bg-zinc-900 resize-none h-[60px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 transition-colors"
+              disabled={!hasApiKey || isLoading}
+              placeholder={hasApiKey ? "Ask about your inventory..." : "AI dinonaktifkan (Cek konfigurasi API Key)"}
+              className="w-full pl-4 pr-12 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:bg-white dark:focus:bg-zinc-900 resize-none h-[60px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 transition-colors disabled:opacity-50"
             />
             <button 
               onClick={handleSend}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || !hasApiKey}
               className="absolute right-2 top-2 p-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-4 h-4" />
             </button>
-          </div>
-          <div className="text-center mt-2">
-             <p className="text-[10px] text-zinc-400 dark:text-zinc-600">AI can make mistakes. Verify critical inventory data.</p>
           </div>
         </div>
       </div>
