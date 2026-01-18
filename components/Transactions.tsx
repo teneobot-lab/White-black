@@ -1,7 +1,8 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { CartItem, Item } from '../types';
-import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X, Box, Layers, FileDown, Upload, FileSpreadsheet } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X, Box, Layers, FileDown, Upload, FileSpreadsheet, Calendar } from 'lucide-react';
 import { read, utils, writeFile } from 'xlsx';
 
 const Transactions: React.FC = () => {
@@ -20,7 +21,13 @@ const Transactions: React.FC = () => {
   const [quantity, setQuantity] = useState<number | string>(''); // Clear by default
   const [selectedUnit, setSelectedUnit] = useState<'base' | 'secondary'>('base');
   
-  const [details, setDetails] = useState({ supplierName: '', poNumber: '', riNumber: '', sjNumber: '' });
+  const [details, setDetails] = useState({ 
+    supplierName: '', 
+    poNumber: '', 
+    riNumber: '', 
+    sjNumber: '',
+    date: new Date().toISOString().split('T')[0] 
+  });
   const [photos, setPhotos] = useState<string[]>([]);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
 
@@ -171,11 +178,6 @@ const Transactions: React.FC = () => {
       let errors: string[] = [];
       let addedCount = 0;
       
-      // Track synchronization actions
-      let newItemsCreatedCount = 0;
-      let stockAdjustedCount = 0;
-
-      // 1. Calculate required totals from Excel to handle stock seeding
       const requiredBySku: Record<string, { total: number, name: string, unit: string }> = {};
       
       for (const row of jsonData) {
@@ -184,7 +186,6 @@ const Transactions: React.FC = () => {
         const unitLabel = String(row.Unit || "").trim();
         if (!sku || isNaN(qtyValue)) continue;
 
-        // Base unit calculation for seeding
         const existingItemRef = items.find(i => i.sku === sku);
         let baseQty = qtyValue;
         if (existingItemRef && unitLabel && existingItemRef.secondaryUnit && unitLabel.toLowerCase() === existingItemRef.secondaryUnit.toLowerCase()) {
@@ -197,7 +198,6 @@ const Transactions: React.FC = () => {
         requiredBySku[sku].total += baseQty;
       }
 
-      // 2. Perform Pass: Synchronize Inventory (Auto-Add and Auto-Adjust Stock)
       const newItemsToStore: (Omit<Item, 'id'> & { id: string })[] = [];
 
       for (const sku in requiredBySku) {
@@ -205,7 +205,6 @@ const Transactions: React.FC = () => {
         const existingItem = items.find(i => i.sku === sku);
 
         if (!existingItem) {
-          // Initialize New Item with stock adjusted to match required import if Outbound
           const newId = Math.random().toString(36).substr(2, 9);
           const initialStock = activeTab === 'Outbound' ? req.total : 0;
           
@@ -222,22 +221,15 @@ const Transactions: React.FC = () => {
             unit: req.unit,
           };
           newItemsToStore.push(newItem);
-          newItemsCreatedCount++;
         } else if (activeTab === 'Outbound' && existingItem.currentStock < req.total) {
-          // Auto-adjust existing item stock so validation passes
           updateItem({ ...existingItem, currentStock: req.total });
-          stockAdjustedCount++;
         }
       }
 
-      // Commit new items to store (this triggers state update)
       if (newItemsToStore.length > 0) {
         addItems(newItemsToStore);
       }
 
-      // 3. Final Pass: Build the cart using the updated inventory environment
-      // We use a short timeout or rely on local mapping because store update is async
-      // For immediate cart building, we simulate the 'next' state of items
       const localInventory = [...items, ...newItemsToStore].map(item => {
         const req = requiredBySku[item.sku];
         if (activeTab === 'Outbound' && req && item.currentStock < req.total) {
@@ -268,7 +260,6 @@ const Transactions: React.FC = () => {
         const existingInCart = importedCart.find(c => c.itemId === item.id);
         const currentCartQty = existingInCart ? existingInCart.quantity : 0;
 
-        // Validation - Should always pass now due to synchronization step above
         if (activeTab === 'Outbound' && (currentCartQty + finalQty) > item.currentStock) {
           errors.push(`Stock mismatch for ${sku}. Required: ${currentCartQty + finalQty}, Available: ${item.currentStock}`);
           continue;
@@ -298,12 +289,6 @@ const Transactions: React.FC = () => {
       setCart(importedCart);
       
       let successText = `Successfully imported ${addedCount} items to cart.`;
-      const extras = [];
-      if (newItemsCreatedCount > 0) extras.push(`${newItemsCreatedCount} new SKUs created`);
-      if (stockAdjustedCount > 0) extras.push(`${stockAdjustedCount} stock levels auto-adjusted`);
-      
-      if (extras.length > 0) successText += ` (${extras.join(' and ')})`;
-
       if (errors.length > 0) {
         setMessage({ type: 'error', text: `${successText} Errors: ${errors.slice(0, 2).join(', ')}` });
       } else {
@@ -354,7 +339,13 @@ const Transactions: React.FC = () => {
     
     if (success) {
       setCart([]);
-      setDetails({ supplierName: '', poNumber: '', riNumber: '', sjNumber: '' });
+      setDetails({ 
+        supplierName: '', 
+        poNumber: '', 
+        riNumber: '', 
+        sjNumber: '', 
+        date: new Date().toISOString().split('T')[0] 
+      });
       setPhotos([]);
       setMessage({ type: 'success', text: 'Transaction processed successfully!' });
       setTimeout(() => setMessage(null), 3000);
@@ -403,7 +394,7 @@ const Transactions: React.FC = () => {
           <button
             onClick={() => { setActiveTab('Outbound'); setCart([]); setMessage(null); }}
             className={`flex-1 md:w-32 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'Outbound' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+              activeTab === 'Outbound' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:white shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
             }`}
           >
             Outbound
@@ -411,7 +402,7 @@ const Transactions: React.FC = () => {
           <button
             onClick={() => { setActiveTab('Inbound'); setCart([]); setMessage(null); }}
             className={`flex-1 md:w-32 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-              activeTab === 'Inbound' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+              activeTab === 'Inbound' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:white shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
             }`}
           >
             Inbound
@@ -500,11 +491,6 @@ const Transactions: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                   Unit 
-                  {selectedItem?.secondaryUnit && (
-                      <span className="text-[10px] ml-1 text-blue-600 dark:text-blue-400 font-normal">
-                          {activeTab === 'Inbound' ? '(Recommended: Large)' : '(Recommended: Small)'}
-                      </span>
-                  )}
                 </label>
                 <div className="relative">
                   <select
@@ -556,8 +542,23 @@ const Transactions: React.FC = () => {
           </div>
 
           <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
-            <h3 className="font-semibold text-zinc-900 dark:text-white">Document Details</h3>
+            <h3 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+               Document Details
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Common Date Field */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-blue-500" /> Transaction Date
+                </label>
+                <input 
+                  type="date" 
+                  className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                  value={details.date}
+                  onChange={e => setDetails({...details, date: e.target.value})}
+                />
+              </div>
+
               {activeTab === 'Inbound' ? (
                 <>
                   <div>

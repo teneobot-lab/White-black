@@ -1,3 +1,4 @@
+
 import express from 'express';
 import mysql from 'mysql2/promise';
 import cors from 'cors';
@@ -54,7 +55,7 @@ router.put('/items/:id', async (req, res) => {
     const d = req.body;
     await pool.query(
       'UPDATE items SET sku=?, name=?, category=?, price=?, location=?, min_level=?, current_stock=?, unit=?, status=?, conversion_rate=?, secondary_unit=? WHERE id=?',
-      [d.sku, d.name, d.category, d.price, d.location, d.minLevel, d.currentStock, d.unit, d.status, d.conversionRate, d.secondaryUnit, req.params.id]
+      [d.sku, d.name, d.category, d.price, d.location, d.min_level, d.current_stock, d.unit, d.status, d.conversionRate, d.secondaryUnit, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -71,7 +72,6 @@ router.delete('/items/:id', async (req, res) => {
   }
 });
 
-// Endpoint baru untuk bulk delete items
 router.post('/items/bulk-delete', async (req, res) => {
   try {
     const { ids } = req.body;
@@ -91,9 +91,12 @@ router.post('/transactions', async (req, res) => {
     await connection.beginTransaction();
     const { trx, items_update } = req.body;
     const trxId = generateId();
+    // Gunakan tanggal dari client jika ada, jika tidak gunakan waktu sekarang
+    const trxDate = trx.date ? new Date(trx.date) : new Date();
+    
     await connection.query(
       'INSERT INTO transactions (id, transactionId, type, date, items, supplierName, poNumber, riNumber, sjNumber, totalItems, photos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [trxId, trx.transactionId || `TRX-${Date.now()}`, trx.type, new Date(), JSON.stringify(trx.items), trx.supplierName, trx.poNumber, trx.riNumber, trx.sjNumber, trx.items.reduce((a, b) => a + b.quantity, 0), JSON.stringify(trx.photos || [])]
+      [trxId, trx.transactionId || `TRX-${Date.now()}`, trx.type, trxDate, JSON.stringify(trx.items), trx.supplierName, trx.poNumber, trx.riNumber, trx.sjNumber, trx.items.reduce((a, b) => a + b.quantity, 0), JSON.stringify(trx.photos || [])]
     );
     for (const item of items_update) {
       const adjustment = item.type === 'Inbound' ? item.quantity : -item.quantity;
