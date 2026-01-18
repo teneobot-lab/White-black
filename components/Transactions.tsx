@@ -5,7 +5,7 @@ import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, Ch
 import { read, utils, writeFile } from 'xlsx';
 
 const Transactions: React.FC = () => {
-  const { items, processTransaction, addItems } = useAppStore();
+  const { items, processTransaction, addItems, updateItem } = useAppStore();
   
   const [activeTab, setActiveTab] = useState<'Inbound' | 'Outbound'>('Outbound');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -68,16 +68,12 @@ const Transactions: React.FC = () => {
     setSearchTerm(`${item.sku} - ${item.name}`);
     setIsDropdownOpen(false);
     
-    // Recommendation Logic: 
-    // Inbound -> Suggest Secondary (Large) if available
-    // Outbound -> Suggest Base (Small)
     if (activeTab === 'Inbound' && item.secondaryUnit && item.conversionRate && item.conversionRate > 1) {
       setSelectedUnit('secondary');
     } else {
       setSelectedUnit('base');
     }
 
-    // Move focus to quantity
     setTimeout(() => qtyInputRef.current?.focus(), 10);
   };
 
@@ -174,45 +170,82 @@ const Transactions: React.FC = () => {
       let importedCart: CartItem[] = [...cart];
       let errors: string[] = [];
       let addedCount = 0;
+      
+      // Track synchronization actions
       let newItemsCreatedCount = 0;
+      let stockAdjustedCount = 0;
 
-      // Local references to find items accurately after creating new ones
-      const localItems: Item[] = [...items];
-      const newItemsToStore: (Omit<Item, 'id'> & { id: string })[] = [];
-
-      // 1. First pass: Identify missing SKUs and create them
+      // 1. Calculate required totals from Excel to handle stock seeding
+      const requiredBySku: Record<string, { total: number, name: string, unit: string }> = {};
+      
       for (const row of jsonData) {
         const sku = String(row.SKU || "").trim();
-        if (!sku) continue;
+        const qtyValue = parseFloat(row.Quantity);
+        const unitLabel = String(row.Unit || "").trim();
+        if (!sku || isNaN(qtyValue)) continue;
 
-        const existingItem = localItems.find(i => i.sku === sku);
+        // Base unit calculation for seeding
+        const existingItemRef = items.find(i => i.sku === sku);
+        let baseQty = qtyValue;
+        if (existingItemRef && unitLabel && existingItemRef.secondaryUnit && unitLabel.toLowerCase() === existingItemRef.secondaryUnit.toLowerCase()) {
+          baseQty = qtyValue * (existingItemRef.conversionRate || 1);
+        }
+
+        if (!requiredBySku[sku]) {
+          requiredBySku[sku] = { total: 0, name: String(row.Name || sku), unit: String(row.Unit || "pcs") };
+        }
+        requiredBySku[sku].total += baseQty;
+      }
+
+      // 2. Perform Pass: Synchronize Inventory (Auto-Add and Auto-Adjust Stock)
+      const newItemsToStore: (Omit<Item, 'id'> & { id: string })[] = [];
+
+      for (const sku in requiredBySku) {
+        const req = requiredBySku[sku];
+        const existingItem = items.find(i => i.sku === sku);
+
         if (!existingItem) {
-          // Construct a new item master record automatically
+          // Initialize New Item with stock adjusted to match required import if Outbound
           const newId = Math.random().toString(36).substr(2, 9);
+          const initialStock = activeTab === 'Outbound' ? req.total : 0;
+          
           const newItem: Item = {
             id: newId,
             sku: sku,
-            name: String(row.Name || row.SKU || "New Item"),
+            name: req.name,
             category: "Uncategorized",
             price: 0,
             location: "-",
             minLevel: 0,
             status: "Active",
-            currentStock: 0, // Initial stock is 0
-            unit: String(row.Unit || "pcs"),
+            currentStock: initialStock,
+            unit: req.unit,
           };
-          localItems.push(newItem);
           newItemsToStore.push(newItem);
           newItemsCreatedCount++;
+        } else if (activeTab === 'Outbound' && existingItem.currentStock < req.total) {
+          // Auto-adjust existing item stock so validation passes
+          updateItem({ ...existingItem, currentStock: req.total });
+          stockAdjustedCount++;
         }
       }
 
-      // 2. Commit new items to store if any
+      // Commit new items to store (this triggers state update)
       if (newItemsToStore.length > 0) {
         addItems(newItemsToStore);
       }
 
-      // 3. Second pass: Build the cart using localItems (which now includes the new ones)
+      // 3. Final Pass: Build the cart using the updated inventory environment
+      // We use a short timeout or rely on local mapping because store update is async
+      // For immediate cart building, we simulate the 'next' state of items
+      const localInventory = [...items, ...newItemsToStore].map(item => {
+        const req = requiredBySku[item.sku];
+        if (activeTab === 'Outbound' && req && item.currentStock < req.total) {
+          return { ...item, currentStock: req.total };
+        }
+        return item;
+      });
+
       for (const row of jsonData) {
         const sku = String(row.SKU || "").trim();
         const qtyValue = parseFloat(row.Quantity);
@@ -220,30 +253,24 @@ const Transactions: React.FC = () => {
 
         if (!sku || isNaN(qtyValue) || qtyValue <= 0) continue;
 
-        const item = localItems.find(i => i.sku === sku && i.status === 'Active');
-        if (!item) {
-          errors.push(`SKU ${sku} could not be processed.`);
-          continue;
-        }
+        const item = localInventory.find(i => i.sku === sku && i.status === 'Active');
+        if (!item) continue;
 
         let finalQty = qtyValue;
         let displayUnit = item.unit;
         let displayInputQty = qtyValue;
 
-        // Check if secondary unit is used
         if (unitLabel && item.secondaryUnit && unitLabel.toLowerCase() === item.secondaryUnit.toLowerCase()) {
           finalQty = qtyValue * (item.conversionRate || 1);
           displayUnit = item.secondaryUnit;
-        } else {
-          displayUnit = item.unit;
         }
 
-        // Check stock for outbound
         const existingInCart = importedCart.find(c => c.itemId === item.id);
         const currentCartQty = existingInCart ? existingInCart.quantity : 0;
 
+        // Validation - Should always pass now due to synchronization step above
         if (activeTab === 'Outbound' && (currentCartQty + finalQty) > item.currentStock) {
-          errors.push(`Insufficient stock for ${sku} (${item.name}). Max available: ${item.currentStock}.`);
+          errors.push(`Stock mismatch for ${sku}. Required: ${currentCartQty + finalQty}, Available: ${item.currentStock}`);
           continue;
         }
 
@@ -271,12 +298,14 @@ const Transactions: React.FC = () => {
       setCart(importedCart);
       
       let successText = `Successfully imported ${addedCount} items to cart.`;
-      if (newItemsCreatedCount > 0) {
-        successText += ` (${newItemsCreatedCount} new SKUs auto-created in Inventory)`;
-      }
+      const extras = [];
+      if (newItemsCreatedCount > 0) extras.push(`${newItemsCreatedCount} new SKUs created`);
+      if (stockAdjustedCount > 0) extras.push(`${stockAdjustedCount} stock levels auto-adjusted`);
+      
+      if (extras.length > 0) successText += ` (${extras.join(' and ')})`;
 
       if (errors.length > 0) {
-        setMessage({ type: 'error', text: `${successText} Errors: ${errors.slice(0, 2).join(', ')}${errors.length > 2 ? '...' : ''}` });
+        setMessage({ type: 'error', text: `${successText} Errors: ${errors.slice(0, 2).join(', ')}` });
       } else {
         setMessage({ type: 'success', text: successText });
       }
@@ -482,7 +511,7 @@ const Transactions: React.FC = () => {
                     disabled={!selectedItem || !selectedItem.secondaryUnit}
                     value={selectedUnit}
                     onChange={(e) => setSelectedUnit(e.target.value as 'base' | 'secondary')}
-                    className="w-full pl-3 pr-8 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed appearance-none"
+                    className="w-full pl-3 pr-8 py-2 border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed appearance-none"
                   >
                      <option value="base">{selectedItem ? selectedItem.unit : 'Unit'}</option>
                      {selectedItem?.secondaryUnit && (
