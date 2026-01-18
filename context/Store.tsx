@@ -34,46 +34,104 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [rejectLogs, setRejectLogs] = useState<RejectLog[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
-  // FETCH DATA AWAL DARI BACKEND
+  // Helper untuk memetakan data database (snake_case) ke frontend (camelCase)
+  const mapItem = (dbItem: any): Item => ({
+    id: dbItem.id,
+    sku: dbItem.sku,
+    name: dbItem.name,
+    category: dbItem.category,
+    price: parseFloat(dbItem.price),
+    location: dbItem.location,
+    minLevel: dbItem.min_level,
+    status: dbItem.status,
+    currentStock: parseFloat(dbItem.current_stock),
+    unit: dbItem.unit,
+    conversionRate: dbItem.conversion_rate,
+    secondaryUnit: dbItem.secondary_unit
+  });
+
   const fetchData = async () => {
     try {
       const res = await fetch(`${API_BASE}/sync`);
+      if (!res.ok) throw new Error("Server response not ok");
       const data = await res.json();
-      setItems(data.items);
-      setTransactions(data.transactions);
-      setRejectMasterData(data.rejectMaster);
-      setRejectLogs(data.rejectLogs);
-    } catch (e) { console.error("Database offline, using cached data", e); }
+      
+      setItems((data.items || []).map(mapItem));
+      setTransactions(data.transactions || []);
+      setRejectMasterData(data.rejectMaster || []);
+      setRejectLogs(data.rejectLogs || []);
+    } catch (e) { 
+      console.error("Fetch error:", e);
+      // Inisialisasi dengan array kosong jika gagal agar aplikasi tidak blank
+      setItems([]);
+      setTransactions([]);
+    }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const addItem = async (newItem: Omit<Item, 'id'>) => {
     const id = Math.random().toString(36).substr(2, 9);
     const itemWithId = { ...newItem, id } as Item;
-    setItems([...items, itemWithId]);
-    await fetch(`${API_BASE}/items`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(itemWithId)
-    });
+    
+    // Optimistic update
+    setItems(prev => [...prev, itemWithId]);
+
+    try {
+      await fetch(`${API_BASE}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...itemWithId,
+          min_level: itemWithId.minLevel,
+          current_stock: itemWithId.currentStock,
+          conversion_rate: itemWithId.conversionRate,
+          secondary_unit: itemWithId.secondaryUnit
+        })
+      });
+      fetchData();
+    } catch (e) {
+      console.error("Failed to add item", e);
+    }
+  };
+
+  const addItems = async (newItems: (Omit<Item, 'id'> & { id?: string })[]) => {
+    // Implementasi bulk import
+    for (const item of newItems) {
+      await addItem(item as Omit<Item, 'id'>);
+    }
+  };
+
+  const updateItem = async (updatedItem: Item) => {
+    setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+    try {
+      await fetch(`${API_BASE}/items/${updatedItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...updatedItem,
+          min_level: updatedItem.minLevel,
+          current_stock: updatedItem.currentStock
+        })
+      });
+    } catch (e) { console.error(e); }
+  };
+
+  const deleteItem = async (id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id));
+    try {
+      await fetch(`${API_BASE}/items/${id}`, { method: 'DELETE' });
+    } catch (e) { console.error(e); }
   };
 
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
-    // Tetap gunakan logika validasi stok yang sudah ada
-    if (type === 'Outbound') {
-      for (const cartItem of cart) {
-        const item = items.find(i => i.id === cartItem.itemId);
-        if (!item || item.currentStock < cartItem.quantity) return false;
-      }
-    }
-
-    // Hitung stok baru secara lokal dulu (Optimistic UI)
     const updatedItems = items.map(item => {
       const cartItem = cart.find(c => c.itemId === item.id);
       if (cartItem) {
         const adj = type === 'Inbound' ? cartItem.quantity : -cartItem.quantity;
-        return { ...item, current_stock: Number(item.currentStock) + adj };
+        return { ...item, currentStock: item.currentStock + adj };
       }
       return item;
     });
@@ -88,35 +146,65 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       ...details
     };
 
-    // Kirim ke Backend
     try {
-      await fetch(`${API_BASE}/transactions`, {
+      const res = await fetch(`${API_BASE}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trx: newTrx, items_update: updatedItems })
+        body: JSON.stringify({ 
+          trx: newTrx, 
+          items_update: updatedItems.map(i => ({ id: i.id, currentStock: i.currentStock }))
+        })
       });
-      fetchData(); // Refresh data dari DB
-      return true;
+      if (res.ok) {
+        fetchData();
+        return true;
+      }
+      return false;
     } catch (e) {
+      console.error(e);
       return false;
     }
   };
 
-  // ... Implementasi fungsi lainnya (updateItem, delete, dll) mengikuti pola yang sama:
-  // 1. Update State Lokal (biar cepat di UI)
-  // 2. Kirim fetch/POST ke Backend API
-  
+  const deleteTransaction = async (id: string) => {
+    try {
+      await fetch(`${API_BASE}/transactions/${id}`, { method: 'DELETE' });
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
+  // Reject Module Functions
+  const addRejectLog = async (log: RejectLog) => {
+    try {
+      await fetch(`${API_BASE}/reject-logs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(log)
+      });
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
+  const updateRejectMaster = async (newList: RejectItem[]) => {
+    try {
+      await fetch(`${API_BASE}/reject-master/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: newList })
+      });
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   return (
     <AppContext.Provider value={{ 
       items, transactions, rejectMasterData, rejectLogs, 
-      addItem, processTransaction, isDarkMode, toggleTheme,
-      // Pass empty placeholders for remaining to satisfy type until implemented
-      addItems: () => {}, updateItem: () => {}, deleteItem: () => {},
-      updateTransaction: () => true, deleteTransaction: () => {},
-      addRejectLog: () => {}, updateRejectLog: () => {}, deleteRejectLog: () => {},
-      updateRejectMaster: () => {}
+      addItem, addItems, updateItem, deleteItem,
+      processTransaction, deleteTransaction, updateTransaction: () => true,
+      addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
+      updateRejectMaster, isDarkMode, toggleTheme 
     }}>
       {children}
     </AppContext.Provider>
