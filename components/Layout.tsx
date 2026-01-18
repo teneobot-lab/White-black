@@ -74,8 +74,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </div>
       <div className="flex flex-col justify-center h-full">
         <div className="flex items-baseline tracking-tight leading-none">
-          <span className="text-xl font-bold text-zinc-900 dark:text-white">Jupiter</span>
-          <span className="text-xl font-bold text-blue-600 dark:text-blue-500 ml-1">WMS</span>
+          <span className="text-xl font-bold text-zinc-900 dark:text-white">Inventory</span>
+          <span className="text-xl font-bold text-blue-600 dark:text-blue-500 ml-1">Management</span>
         </div>
       </div>
     </div>
@@ -151,7 +151,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">Administrator</p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">Jupiter WMS v1.2</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">InventoryManagement v1.2</p>
           </div>
         </div>
       </div>
@@ -215,7 +215,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <footer className="bg-white dark:bg-zinc-900 border-t border-gray-200 dark:border-zinc-800 py-4 px-6 md:px-8 mt-auto transition-colors duration-200">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center text-xs text-zinc-400 dark:text-zinc-500">
-            <p>&copy; 2024 Jupiter Systems Inc.</p>
+            <p>&copy; 2024 InventoryManagement Systems Inc.</p>
             <div className="flex space-x-4 mt-2 md:mt-0">
               <span className={backendOnline ? 'text-green-500 font-bold' : 'text-red-500 font-bold'}>
                 {backendOnline ? 'SYSTEM CONNECTED' : 'DATABASE DISCONNECTED'}

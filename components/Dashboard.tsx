@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useAppStore } from '../context/Store';
 import { 
@@ -54,13 +55,16 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
-          <p className="text-zinc-500 dark:text-zinc-400">Welcome back, here's what's happening today.</p>
-        </div>
-        <div className="text-sm text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+      {/* Sticky Header Section */}
+      <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
+            <p className="text-zinc-500 dark:text-zinc-400">Welcome back, here's what's happening today.</p>
+          </div>
+          <div className="text-sm text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </div>
         </div>
       </div>
 
@@ -112,14 +116,17 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
           
-          {/* Low Stock Alert List */}
+          {/* Low Stock Alert List with Scroll Support */}
           {lowStockItems.length > 0 && (
-            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-red-100 dark:border-red-900/30 shadow-sm overflow-hidden transition-colors">
-              <div className="p-4 bg-red-50 dark:bg-red-900/10 border-b border-red-100 dark:border-red-900/30 flex items-center gap-2">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-red-100 dark:border-red-900/30 shadow-sm overflow-hidden transition-colors flex flex-col">
+              <div className="p-4 bg-red-50 dark:bg-red-900/10 border-b border-red-100 dark:border-red-900/30 flex items-center gap-2 sticky top-0 z-10">
                 <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
                 <h3 className="font-semibold text-red-900 dark:text-red-300">Low Stock Alerts</h3>
+                <span className="ml-auto bg-red-200 dark:bg-red-900/50 text-red-800 dark:text-red-100 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                  {lowStockItems.length} ITEMS
+                </span>
               </div>
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800 overflow-y-auto max-h-[400px] custom-scrollbar">
                 {lowStockItems.map(item => (
                   <div key={item.id} className="p-4 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
                     <div>
