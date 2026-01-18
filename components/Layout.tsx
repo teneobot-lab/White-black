@@ -1,0 +1,181 @@
+import React, { useState } from 'react';
+import { NavLink } from 'react-router-dom';
+import { useAppStore } from '../context/Store';
+import { 
+  LayoutDashboard, 
+  Package, 
+  ArrowRightLeft, 
+  History, 
+  Bot, 
+  Settings,
+  Menu,
+  X,
+  Moon,
+  Sun
+} from 'lucide-react';
+
+interface LayoutProps {
+  children: React.ReactNode;
+}
+
+const Layout: React.FC<LayoutProps> = ({ children }) => {
+  const { isDarkMode, toggleTheme } = useAppStore();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  const navItems = [
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
+    { name: 'Inventory', icon: Package, path: '/inventory' },
+    { name: 'Transactions', icon: ArrowRightLeft, path: '/transactions' },
+    { name: 'History', icon: History, path: '/history' },
+    { name: 'AI Assistant', icon: Bot, path: '/ai' },
+    { name: 'Admin', icon: Settings, path: '/admin' },
+  ];
+
+  // Custom Logo Component
+  const Logo = () => (
+    <div className="flex items-center gap-3 select-none">
+      <div className="relative flex items-center justify-center">
+        <svg 
+          width="36" 
+          height="36" 
+          viewBox="0 0 40 40" 
+          fill="none" 
+          xmlns="http://www.w3.org/2000/svg"
+          className="text-blue-600 dark:text-blue-500"
+        >
+          <path 
+            fillRule="evenodd" 
+            clipRule="evenodd" 
+            d="M20 5C11.7157 5 5 11.7157 5 20C5 28.2843 11.7157 35 20 35C28.2843 35 35 28.2843 35 20C35 11.7157 28.2843 5 20 5ZM20 10C22.6522 10 25.1957 11.0536 27.0711 12.9289C28.9464 14.8043 30 17.3478 30 20C30 22.6522 28.9464 25.1957 27.0711 27.0711C25.1957 28.9464 22.6522 30 20 30C17.3478 30 14.8043 28.9464 12.9289 27.0711C11.0536 25.1957 10 22.6522 10 20C10 17.3478 11.0536 14.8043 12.9289 12.9289C14.8043 11.0536 17.3478 10 20 10ZM20 15L15 20L20 25L25 20L20 15Z" 
+            fill="currentColor" 
+            fillOpacity="0.2"
+          />
+          <path 
+            d="M14 20L20 14L26 20L20 26L14 20Z" 
+            stroke="currentColor" 
+            strokeWidth="3" 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+          />
+          <path 
+            d="M8 20H14M26 20H32M20 8V14M20 26V32" 
+            stroke="currentColor" 
+            strokeWidth="3" 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+          />
+        </svg>
+      </div>
+      <div className="flex flex-col justify-center h-full">
+        <div className="flex items-baseline tracking-tight leading-none">
+          <span className="text-xl font-bold text-zinc-900 dark:text-white">Inventory</span>
+          <span className="text-xl font-bold text-blue-600 dark:text-blue-500">Management</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const SidebarContent = () => (
+    <div className="flex flex-col h-full bg-white dark:bg-zinc-900 border-r border-gray-200 dark:border-zinc-800 transition-colors duration-200">
+      <div className="h-16 px-6 flex items-center border-b border-gray-100 dark:border-zinc-800">
+        <Logo />
+      </div>
+      
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            onClick={() => setIsSidebarOpen(false)}
+            className={({ isActive }) =>
+              `flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                  : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+              }`
+            }
+          >
+            <item.icon className={`w-5 h-5 ${ ({ isActive }: any) => isActive ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400 dark:text-zinc-500' }`} />
+            <span>{item.name}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="p-4 border-t border-gray-100 dark:border-zinc-800 space-y-4">
+        {/* Theme Toggle */}
+        <button 
+          onClick={toggleTheme}
+          className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 transition-colors"
+        >
+          {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          <span>{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
+        </button>
+
+        <div className="flex items-center space-x-3 px-4 py-2 pt-0">
+          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-xs font-bold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+            JD
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">John Doe</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">Warehouse Mgr</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 flex transition-colors duration-200">
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 dark:bg-black/70 z-40 lg:hidden backdrop-blur-sm"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside 
+        className={`fixed lg:static inset-y-0 left-0 w-72 bg-white dark:bg-zinc-900 z-50 transform transition-transform duration-200 ease-in-out lg:transform-none ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <SidebarContent />
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-h-screen min-w-0">
+        {/* Mobile Header */}
+        <header className="lg:hidden bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 px-4 h-16 flex items-center justify-between sticky top-0 z-30 transition-colors duration-200">
+          <Logo />
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+          >
+            {isSidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </header>
+
+        {/* Page Content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+          <div className="max-w-7xl mx-auto space-y-6">
+            {children}
+          </div>
+        </main>
+
+        <footer className="bg-white dark:bg-zinc-900 border-t border-gray-200 dark:border-zinc-800 py-4 px-6 md:px-8 mt-auto transition-colors duration-200">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center text-xs text-zinc-400 dark:text-zinc-500">
+            <p>&copy; 2024 Jupiter Systems Inc.</p>
+            <div className="flex space-x-4 mt-2 md:mt-0">
+              <span>v1.0.2</span>
+              <span>Privacy</span>
+              <span>Terms</span>
+            </div>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+};
+
+export default Layout;

@@ -1,0 +1,45 @@
+export type ItemStatus = 'Active' | 'Inactive';
+
+export interface Item {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  price: number;
+  location: string;
+  minLevel: number;
+  status: ItemStatus;
+  currentStock: number;
+  unit: string;
+}
+
+export interface CartItem {
+  itemId: string;
+  itemName: string;
+  sku: string;
+  quantity: number;
+  currentStock: number; // for validation
+}
+
+export type TransactionType = 'Inbound' | 'Outbound';
+
+export interface Transaction {
+  id: string;
+  transactionId: string;
+  type: TransactionType;
+  date: string;
+  items: CartItem[];
+  supplierName?: string;
+  poNumber?: string;
+  riNumber?: string; // Receive Item number
+  sjNumber?: string; // Surat Jalan number
+  totalItems: number;
+  photos?: string[]; // Array of base64 strings or URLs
+}
+
+export interface KpiData {
+  totalValue: number;
+  totalUnits: number;
+  totalSku: number;
+  lowStockCount: number;
+}
