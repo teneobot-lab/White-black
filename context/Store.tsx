@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
+// Alamat API VPS
 const API_BASE = "http://178.128.106.33:5000/api";
 
 interface AppContextType {
@@ -43,21 +44,21 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     sku: dbItem.sku,
     name: dbItem.name,
     category: dbItem.category,
-    price: parseFloat(dbItem.price),
-    location: dbItem.location,
-    minLevel: dbItem.min_level,
-    status: dbItem.status,
-    currentStock: parseFloat(dbItem.current_stock),
-    unit: dbItem.unit,
-    conversionRate: dbItem.conversion_rate,
-    secondaryUnit: dbItem.secondary_unit
+    price: parseFloat(dbItem.price) || 0,
+    location: dbItem.location || '-',
+    minLevel: dbItem.min_level || 0,
+    status: dbItem.status || 'Active',
+    currentStock: parseFloat(dbItem.current_stock) || 0,
+    unit: dbItem.unit || 'pcs',
+    conversionRate: dbItem.conversion_rate || 1,
+    secondaryUnit: dbItem.secondary_unit || ''
   });
 
   const fetchData = async () => {
     try {
       setLastError(null);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 detik timeout
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 detik timeout
 
       const res = await fetch(`${API_BASE}/sync`, {
         method: 'GET',
@@ -67,7 +68,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       
       clearTimeout(timeoutId);
 
-      if (!res.ok) throw new Error(`Server merespon dengan status: ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
       
       const data = await res.json();
       
@@ -79,84 +80,66 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setLastError(null);
     } catch (e: any) { 
       setBackendOnline(false);
-      if (e.name === 'AbortError') {
-        setLastError("Request Timeout: VPS tidak merespon dalam 8 detik.");
-      } else if (window.location.protocol === 'https:' && API_BASE.startsWith('http:')) {
-        setLastError("Blokir Keamanan: Browser memblokir koneksi HTTP di situs HTTPS. Klik ikon gembok di URL bar > Site Settings > Allow Insecure Content.");
+      console.error("Connection Debug:", e);
+
+      // Deteksi Mixed Content (HTTPS -> HTTP)
+      if (window.location.protocol === 'https:' && API_BASE.startsWith('http:')) {
+        setLastError("Browser memblokir koneksi HTTP karena situs ini menggunakan HTTPS. Harap izinkan 'Insecure Content' di setelan browser (ikon gembok) atau gunakan koneksi VPN.");
+      } else if (e.name === 'AbortError') {
+        setLastError("Server tidak merespon (Timeout). Pastikan API di VPS Anda aktif.");
       } else {
-        setLastError(`Koneksi Gagal: ${e.message || "Cek apakah VPS menyalakan API di port 5000"}`);
+        setLastError(`Gagal terhubung ke VPS: ${e.message || "Pastikan API aktif di port 5000 dan CORS diizinkan"}`);
       }
-      console.error("Database Error:", e);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Sync setiap 30 detik
+    const interval = setInterval(fetchData, 60000); // Sync setiap 1 menit
     return () => clearInterval(interval);
   }, []);
 
+  // CRUD Implementations using fetch...
   const addItem = async (newItem: Omit<Item, 'id'>) => {
-    const id = Math.random().toString(36).substr(2, 9);
-    const itemWithId = { ...newItem, id } as Item;
-    setItems(prev => [...prev, itemWithId]);
     try {
-      await fetch(`${API_BASE}/items`, {
+      const res = await fetch(`${API_BASE}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...itemWithId, min_level: itemWithId.minLevel, current_stock: itemWithId.currentStock })
+        body: JSON.stringify({ ...newItem, min_level: newItem.minLevel, current_stock: newItem.currentStock })
       });
-      fetchData();
+      if (res.ok) fetchData();
     } catch (e) { console.error(e); }
   };
 
   const addItems = async (newItems: (Omit<Item, 'id'> & { id?: string })[]) => {
+    // Basic bulk insert via individual calls (for compatibility)
     for (const item of newItems) { await addItem(item as Omit<Item, 'id'>); }
   };
 
   const updateItem = async (updatedItem: Item) => {
-    setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
     try {
-      await fetch(`${API_BASE}/items/${updatedItem.id}`, {
+      const res = await fetch(`${API_BASE}/items/${updatedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedItem, min_level: updatedItem.minLevel, current_stock: updatedItem.currentStock })
       });
+      if (res.ok) fetchData();
     } catch (e) { console.error(e); }
   };
 
   const deleteItem = async (id: string) => {
-    setItems(prev => prev.filter(i => i.id !== id));
     try {
-      await fetch(`${API_BASE}/items/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/items/${id}`, { method: 'DELETE' });
+      if (res.ok) fetchData();
     } catch (e) { console.error(e); }
   };
 
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
-    const updatedItems = items.map(item => {
-      const cartItem = cart.find(c => c.itemId === item.id);
-      if (cartItem) {
-        const adj = type === 'Inbound' ? cartItem.quantity : -cartItem.quantity;
-        return { ...item, currentStock: item.currentStock + adj };
-      }
-      return item;
-    });
-
-    const newTrx = {
-      id: Math.random().toString(36).substr(2, 9),
-      transactionId: `TRX-${Date.now().toString().slice(-6)}`,
-      type,
-      date: new Date().toISOString(),
-      items: cart,
-      totalItems: cart.reduce((a, b) => a + b.quantity, 0),
-      ...details
-    };
-
     try {
       const res = await fetch(`${API_BASE}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trx: newTrx, items_update: updatedItems.map(i => ({ id: i.id, currentStock: i.currentStock })) })
+        body: JSON.stringify({ trx: { type, items: cart, ...details }, items_update: cart.map(c => ({ id: c.itemId, quantity: c.quantity, type })) })
       });
       if (res.ok) { fetchData(); return true; }
       return false;
