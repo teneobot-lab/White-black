@@ -18,11 +18,14 @@ const pool = mysql.createPool({
   connectionLimit: 10
 });
 
-// Endpoint Sinkronisasi
+// --- HELPER ---
+const generateId = () => Math.random().toString(36).substr(2, 9);
+
+// --- ENDPOINT SINKRONISASI ---
 app.get('/api/sync', async (req, res) => {
   try {
     const [items] = await pool.query('SELECT * FROM items');
-    const [transactions] = await pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 100');
+    const [transactions] = await pool.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 200');
     const [rejectMaster] = await pool.query('SELECT * FROM reject_master');
     const [rejectLogs] = await pool.query('SELECT * FROM reject_logs ORDER BY timestamp DESC');
     res.json({ items, transactions, rejectMaster, rejectLogs });
@@ -31,14 +34,14 @@ app.get('/api/sync', async (req, res) => {
   }
 });
 
-// Endpoint Tambah/Update Item
+// --- ENDPOINT ITEMS ---
 app.post('/api/items', async (req, res) => {
   try {
-    const data = req.body;
-    const id = data.id || Math.random().toString(36).substr(2, 9);
+    const d = req.body;
+    const id = d.id || generateId();
     await pool.query(
-      'INSERT INTO items (id, sku, name, category, price, location, min_level, current_stock, unit, status, conversion_rate, secondary_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), category=VALUES(category), price=VALUES(price), location=VALUES(location), current_stock=VALUES(current_stock)',
-      [id, data.sku, data.name, data.category, data.price, data.location, data.min_level, data.current_stock, data.unit, data.status, data.conversion_rate, data.secondary_unit]
+      'INSERT INTO items (id, sku, name, category, price, location, min_level, current_stock, unit, status, conversion_rate, secondary_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, d.sku, d.name, d.category, d.price, d.location, d.minLevel || 0, d.currentStock || 0, d.unit, d.status, d.conversionRate || 1, d.secondaryUnit || '']
     );
     res.json({ success: true, id });
   } catch (err) {
@@ -46,5 +49,132 @@ app.post('/api/items', async (req, res) => {
   }
 });
 
+app.put('/api/items/:id', async (req, res) => {
+  try {
+    const d = req.body;
+    await pool.query(
+      'UPDATE items SET sku=?, name=?, category=?, price=?, location=?, min_level=?, current_stock=?, unit=?, status=?, conversion_rate=?, secondary_unit=? WHERE id=?',
+      [d.sku, d.name, d.category, d.price, d.location, d.minLevel, d.currentStock, d.unit, d.status, d.conversionRate, d.secondaryUnit, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/items/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM items WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- ENDPOINT TRANSACTIONS (WITH STOCK UPDATE) ---
+app.post('/api/transactions', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { trx, items_update } = req.body;
+    const trxId = generateId();
+
+    // 1. Insert Transaction Record
+    await connection.query(
+      'INSERT INTO transactions (id, transactionId, type, date, items, supplierName, poNumber, riNumber, sjNumber, totalItems, photos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [trxId, trx.transactionId || `TRX-${Date.now()}`, trx.type, new Date(), JSON.stringify(trx.items), trx.supplierName, trx.poNumber, trx.riNumber, trx.sjNumber, trx.items.reduce((a, b) => a + b.quantity, 0), JSON.stringify(trx.photos || [])]
+    );
+
+    // 2. Update Stocks
+    for (const item of items_update) {
+      const adjustment = item.type === 'Inbound' ? item.quantity : -item.quantity;
+      await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [adjustment, item.id]);
+    }
+
+    await connection.commit();
+    res.json({ success: true, id: trxId });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+app.delete('/api/transactions/:id', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    
+    // 1. Get Transaction Data to Revert Stocks
+    const [rows] = await connection.query('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
+    if (rows.length === 0) throw new Error('Transaction not found');
+    
+    const trx = rows[0];
+    const items = typeof trx.items === 'string' ? JSON.parse(trx.items) : trx.items;
+
+    // 2. Revert Stocks (Inverse of previous adjustment)
+    for (const item of items) {
+      const adjustment = trx.type === 'Inbound' ? -item.quantity : item.quantity;
+      await connection.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [adjustment, item.itemId]);
+    }
+
+    // 3. Delete Transaction
+    await connection.query('DELETE FROM transactions WHERE id = ?', [req.params.id]);
+
+    await connection.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// --- ENDPOINT REJECT MODULE ---
+app.post('/api/reject-logs', async (req, res) => {
+  try {
+    const d = req.body;
+    await pool.query(
+      'INSERT INTO reject_logs (id, date, items, notes, timestamp) VALUES (?, ?, ?, ?, ?)',
+      [d.id || generateId(), d.date, JSON.stringify(d.items), d.notes, new Date()]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reject-master/sync', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { items } = req.body;
+
+    // 1. Clear existing master
+    await connection.query('DELETE FROM reject_master');
+
+    // 2. Bulk insert new master
+    if (items.length > 0) {
+      const values = items.map(i => [
+        i.id || generateId(), i.sku, i.name, i.baseUnit, i.unit2, i.ratio2, i.unit3, i.ratio3, new Date()
+      ]);
+      await connection.query(
+        'INSERT INTO reject_master (id, sku, name, baseUnit, unit2, ratio2, unit3, ratio3, lastUpdated) VALUES ?',
+        [values]
+      );
+    }
+
+    await connection.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server aktif di port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Jupiter Server Full-Feature Aktif di port ${PORT}`));
