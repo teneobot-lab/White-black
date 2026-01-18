@@ -19,7 +19,9 @@ const AiAssistant: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const hasApiKey = process.env.API_KEY && process.env.API_KEY !== "undefined";
+  // Gunakan window.process secara eksplisit agar aman di browser
+  const apiKey = (window as any).process?.env?.API_KEY;
+  const hasApiKey = apiKey && apiKey !== "undefined" && apiKey.length > 10;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -69,7 +71,10 @@ const AiAssistant: React.FC = () => {
       {!hasApiKey && (
         <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center gap-3 text-amber-800 dark:text-amber-200 text-sm">
           <AlertTriangle className="w-5 h-5 shrink-0" />
-          <p><strong>Perhatian:</strong> API Key Gemini belum terpasang di Vercel. Fitur AI tidak akan berfungsi sebelum Anda menambahkannya di Dashboard Vercel.</p>
+          <div className="flex-1">
+            <p className="font-bold">API Key Gemini Belum Aktif</p>
+            <p className="text-xs opacity-80">Fitur AI tidak akan merespon. Silakan tambahkan variabel <strong>API_KEY</strong> di dashboard Vercel Anda.</p>
+          </div>
         </div>
       )}
 
@@ -123,7 +128,7 @@ const AiAssistant: React.FC = () => {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={!hasApiKey || isLoading}
-              placeholder={hasApiKey ? "Ask about your inventory..." : "AI dinonaktifkan (Cek konfigurasi API Key)"}
+              placeholder={hasApiKey ? "Tanya sesuatu tentang gudang..." : "AI dinonaktifkan (Butuh API Key)"}
               className="w-full pl-4 pr-12 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:bg-white dark:focus:bg-zinc-900 resize-none h-[60px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 transition-colors disabled:opacity-50"
             />
             <button 

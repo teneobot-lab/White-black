@@ -1,7 +1,8 @@
+
 import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
-const API_BASE = '/api';
+const API_BASE = "http://178.128.106.33:5000/api";
 
 interface AppContextType {
   items: Item[];
@@ -21,6 +22,7 @@ interface AppContextType {
   updateRejectMaster: (newList: RejectItem[]) => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
+  backendOnline: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -31,6 +33,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [rejectMasterData, setRejectMasterData] = useState<RejectItem[]>([]);
   const [rejectLogs, setRejectLogs] = useState<RejectLog[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [backendOnline, setBackendOnline] = useState(false);
 
   const mapItem = (dbItem: any): Item => ({
     id: dbItem.id,
@@ -44,21 +47,31 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     currentStock: parseFloat(dbItem.current_stock),
     unit: dbItem.unit,
     conversionRate: dbItem.conversion_rate,
-    secondaryUnit: dbItem.secondary_unit,
+    secondaryUnit: dbItem.secondary_unit
   });
 
   const fetchData = async () => {
     try {
-      const res = await fetch(`${API_BASE}/sync`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      console.log("Menghubungkan ke database VPS...");
+      const res = await fetch(`${API_BASE}/sync`, {
+        // Mode no-cors terkadang membantu mendiagnosa tapi fetch butuh cors
+        mode: 'cors'
+      });
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
-
+      
       setItems((data.items || []).map(mapItem));
       setTransactions(data.transactions || []);
       setRejectMasterData(data.rejectMaster || []);
       setRejectLogs(data.rejectLogs || []);
-    } catch (err) {
-      console.error(err);
+      setBackendOnline(true);
+      console.log("Sinkronisasi Berhasil!");
+    } catch (e) { 
+      setBackendOnline(false);
+      console.error("Gagal terhubung ke VPS.");
+      console.warn("TIPS: Jika Anda menggunakan Vercel (HTTPS), izinkan 'Insecure Content' di setelan browser untuk IP VPS Anda (HTTP).");
+      
+      // Fallback data kosong agar UI tidak blank
       setItems([]);
       setTransactions([]);
     }
@@ -66,114 +79,124 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   useEffect(() => {
     fetchData();
+    // Auto sync setiap 60 detik
+    const interval = setInterval(fetchData, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const addItem = async (newItem: Omit<Item, 'id'>) => {
-    const id = Math.random().toString(36).slice(2);
+    const id = Math.random().toString(36).substr(2, 9);
     const itemWithId = { ...newItem, id } as Item;
     setItems(prev => [...prev, itemWithId]);
-
-    await fetch(`${API_BASE}/items`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(itemWithId),
-    });
-
-    fetchData();
+    try {
+      await fetch(`${API_BASE}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...itemWithId, min_level: itemWithId.minLevel, current_stock: itemWithId.currentStock })
+      });
+      fetchData();
+    } catch (e) { console.error(e); }
   };
 
-  const addItems = async (items: (Omit<Item, 'id'> & { id?: string })[]) => {
-    for (const i of items) {
-      await addItem(i as Omit<Item, 'id'>);
-    }
+  const addItems = async (newItems: (Omit<Item, 'id'> & { id?: string })[]) => {
+    for (const item of newItems) { await addItem(item as Omit<Item, 'id'>); }
   };
 
-  const updateItem = async (item: Item) => {
-    await fetch(`${API_BASE}/items/${item.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item),
-    });
-    fetchData();
+  const updateItem = async (updatedItem: Item) => {
+    setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+    try {
+      await fetch(`${API_BASE}/items/${updatedItem.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...updatedItem, min_level: updatedItem.minLevel, current_stock: updatedItem.currentStock })
+      });
+    } catch (e) { console.error(e); }
   };
 
   const deleteItem = async (id: string) => {
-    await fetch(`${API_BASE}/items/${id}`, { method: 'DELETE' });
-    fetchData();
+    setItems(prev => prev.filter(i => i.id !== id));
+    try {
+      await fetch(`${API_BASE}/items/${id}`, { method: 'DELETE' });
+    } catch (e) { console.error(e); }
   };
 
-  const processTransaction = async (
-    type: TransactionType,
-    cart: CartItem[],
-    details: any
-  ): Promise<boolean> => {
+  const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
     const updatedItems = items.map(item => {
-      const c = cart.find(ci => ci.itemId === item.id);
-      if (!c) return item;
-      const adj = type === 'Inbound' ? c.quantity : -c.quantity;
-      return { ...item, currentStock: item.currentStock + adj };
+      const cartItem = cart.find(c => c.itemId === item.id);
+      if (cartItem) {
+        const adj = type === 'Inbound' ? cartItem.quantity : -cartItem.quantity;
+        return { ...item, currentStock: item.currentStock + adj };
+      }
+      return item;
     });
 
-    const trx = {
-      id: Math.random().toString(36).slice(2),
+    const newTrx = {
+      id: Math.random().toString(36).substr(2, 9),
       transactionId: `TRX-${Date.now().toString().slice(-6)}`,
       type,
       date: new Date().toISOString(),
       items: cart,
       totalItems: cart.reduce((a, b) => a + b.quantity, 0),
-      ...details,
+      ...details
     };
 
-    const res = await fetch(`${API_BASE}/transactions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        trx,
-        items_update: updatedItems.map(i => ({
-          id: i.id,
-          currentStock: i.currentStock,
-        })),
-      }),
-    });
-
-    if (res.ok) {
-      fetchData();
-      return true;
-    }
-    return false;
+    try {
+      const res = await fetch(`${API_BASE}/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trx: newTrx, items_update: updatedItems.map(i => ({ id: i.id, currentStock: i.currentStock })) })
+      });
+      if (res.ok) { fetchData(); return true; }
+      return false;
+    } catch (e) { console.error(e); return false; }
   };
 
-  const toggleTheme = () => setIsDarkMode(v => !v);
+  const deleteTransaction = async (id: string) => {
+    try {
+      await fetch(`${API_BASE}/transactions/${id}`, { method: 'DELETE' });
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
+  const addRejectLog = async (log: RejectLog) => {
+    try {
+      await fetch(`${API_BASE}/reject-logs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(log)
+      });
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
+  const updateRejectMaster = async (newList: RejectItem[]) => {
+    try {
+      await fetch(`${API_BASE}/reject-master/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: newList })
+      });
+      fetchData();
+    } catch (e) { console.error(e); }
+  };
+
+  const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   return (
-    <AppContext.Provider
-      value={{
-        items,
-        transactions,
-        rejectMasterData,
-        rejectLogs,
-        addItem,
-        addItems,
-        updateItem,
-        deleteItem,
-        processTransaction,
-        updateTransaction: () => true,
-        deleteTransaction: async () => {},
-        addRejectLog: async () => {},
-        updateRejectLog: () => {},
-        deleteRejectLog: () => {},
-        updateRejectMaster: async () => {},
-        isDarkMode,
-        toggleTheme,
-      }}
-    >
+    <AppContext.Provider value={{ 
+      items, transactions, rejectMasterData, rejectLogs, 
+      addItem, addItems, updateItem, deleteItem,
+      processTransaction, deleteTransaction, updateTransaction: () => true,
+      addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
+      updateRejectMaster, isDarkMode, toggleTheme, backendOnline
+    }}>
       {children}
     </AppContext.Provider>
   );
 };
 
 export const useAppStore = () => {
-  const ctx = useContext(AppContext);
-  if (!ctx) throw new Error('useAppStore must be used within AppProvider');
-  return ctx;
+  const context = useContext(AppContext);
+  if (!context) throw new Error("useAppStore must be used within AppProvider");
+  return context;
 };
