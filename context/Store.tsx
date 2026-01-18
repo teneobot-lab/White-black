@@ -3,11 +3,11 @@ import { Item, Transaction, TransactionType, CartItem } from '../types';
 
 // Mock Data
 const INITIAL_ITEMS: Item[] = [
-  { id: '1', sku: 'ELEC-001', name: 'Wireless Mouse', category: 'Electronics', price: 150000, location: 'A-01', minLevel: 10, status: 'Active', currentStock: 45, unit: 'pcs' },
-  { id: '2', sku: 'ELEC-002', name: 'Mechanical Keyboard', category: 'Electronics', price: 850000, location: 'A-02', minLevel: 5, status: 'Active', currentStock: 12, unit: 'pcs' },
-  { id: '3', sku: 'OFF-001', name: 'A4 Paper Ream', category: 'Office Supplies', price: 45000, location: 'B-01', minLevel: 50, status: 'Active', currentStock: 20, unit: 'ream' },
+  { id: '1', sku: 'ELEC-001', name: 'Wireless Mouse', category: 'Electronics', price: 150000, location: 'A-01', minLevel: 10, status: 'Active', currentStock: 45, unit: 'pcs', conversionRate: 10, secondaryUnit: 'Box' },
+  { id: '2', sku: 'ELEC-002', name: 'Mechanical Keyboard', category: 'Electronics', price: 850000, location: 'A-02', minLevel: 5, status: 'Active', currentStock: 12, unit: 'pcs', conversionRate: 5, secondaryUnit: 'Crt' },
+  { id: '3', sku: 'OFF-001', name: 'A4 Paper Ream', category: 'Office Supplies', price: 45000, location: 'B-01', minLevel: 50, status: 'Active', currentStock: 22, unit: 'ream', conversionRate: 5, secondaryUnit: 'Box' },
   { id: '4', sku: 'FUR-001', name: 'Ergonomic Chair', category: 'Furniture', price: 2500000, location: 'C-05', minLevel: 2, status: 'Active', currentStock: 0, unit: 'unit' },
-  { id: '5', sku: 'ELEC-003', name: 'USB-C Cable', category: 'Electronics', price: 35000, location: 'A-03', minLevel: 20, status: 'Active', currentStock: 15, unit: 'pcs' },
+  { id: '5', sku: 'ELEC-003', name: 'USB-C Cable', category: 'Electronics', price: 35000, location: 'A-03', minLevel: 20, status: 'Active', currentStock: 15, unit: 'pcs', conversionRate: 100, secondaryUnit: 'MasterBox' },
 ];
 
 const INITIAL_TRANSACTIONS: Transaction[] = [
@@ -35,7 +35,8 @@ interface AppContextType {
     cart: CartItem[], 
     details: { supplierName?: string; poNumber?: string; riNumber?: string; sjNumber?: string; photos?: string[] }
   ) => boolean;
-  updateTransaction: (transaction: Transaction) => void;
+  updateTransaction: (transaction: Transaction) => boolean;
+  deleteTransaction: (id: string) => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
 }
@@ -104,8 +105,73 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     setItems(items.filter(i => i.id !== id));
   };
 
-  const updateTransaction = (updatedTrx: Transaction) => {
-    setTransactions(transactions.map(t => t.id === updatedTrx.id ? updatedTrx : t));
+  const updateTransaction = (updatedTrx: Transaction): boolean => {
+    const originalTrx = transactions.find(t => t.id === updatedTrx.id);
+    if (!originalTrx) return false;
+
+    // Create a deep copy of items to simulate and apply changes safely
+    let tempItems = items.map(i => ({...i}));
+
+    // 1. Revert Original Transaction Effects
+    // If Inbound: Subtract original qty. If Outbound: Add back original qty.
+    for (const oldItem of originalTrx.items) {
+      const itemIndex = tempItems.findIndex(i => i.id === oldItem.itemId);
+      if (itemIndex > -1) {
+        if (originalTrx.type === 'Inbound') {
+           tempItems[itemIndex].currentStock -= oldItem.quantity;
+        } else {
+           tempItems[itemIndex].currentStock += oldItem.quantity;
+        }
+      }
+    }
+
+    // 2. Apply New Transaction Effects & Validate
+    for (const newItem of updatedTrx.items) {
+      const itemIndex = tempItems.findIndex(i => i.id === newItem.itemId);
+      if (itemIndex > -1) {
+         if (updatedTrx.type === 'Inbound') {
+            tempItems[itemIndex].currentStock += newItem.quantity;
+         } else {
+            // Outbound check
+            if (tempItems[itemIndex].currentStock < newItem.quantity) {
+               // Stock insufficient (likely because we increased outbound qty beyond limits)
+               alert(`Insufficient stock for ${newItem.itemName}. Available after revert: ${tempItems[itemIndex].currentStock}`);
+               return false;
+            }
+            tempItems[itemIndex].currentStock -= newItem.quantity;
+         }
+      }
+    }
+
+    // 3. Commit Changes
+    setItems(tempItems);
+    
+    // Recalculate total items count
+    const finalTrx = {
+      ...updatedTrx,
+      totalItems: updatedTrx.items.reduce((acc, curr) => acc + curr.quantity, 0)
+    };
+    
+    setTransactions(transactions.map(t => t.id === updatedTrx.id ? finalTrx : t));
+    return true;
+  };
+
+  const deleteTransaction = (id: string) => {
+    const trx = transactions.find(t => t.id === id);
+    if (!trx) return;
+
+    // Revert stock changes
+    const newItems = items.map(item => {
+      const trxItem = trx.items.find(ti => ti.itemId === item.id);
+      if (trxItem) {
+        const adjustment = trx.type === 'Inbound' ? -trxItem.quantity : trxItem.quantity;
+        return { ...item, currentStock: item.currentStock + adjustment };
+      }
+      return item;
+    });
+
+    setItems(newItems);
+    setTransactions(transactions.filter(t => t.id !== id));
   };
 
   const processTransaction = (
@@ -161,6 +227,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       deleteItem, 
       processTransaction, 
       updateTransaction,
+      deleteTransaction,
       isDarkMode,
       toggleTheme
     }}>

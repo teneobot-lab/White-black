@@ -10,7 +10,9 @@ export interface Item {
   minLevel: number;
   status: ItemStatus;
   currentStock: number;
-  unit: string;
+  unit: string; // Base unit (e.g., pcs)
+  conversionRate?: number; // How many base units in one secondary unit (e.g., 12)
+  secondaryUnit?: string; // Name of secondary unit (e.g., Box)
 }
 
 export interface CartItem {

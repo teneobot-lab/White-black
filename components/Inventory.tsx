@@ -24,7 +24,7 @@ const Inventory: React.FC = () => {
 
   // Form State
   const [formData, setFormData] = useState<Partial<Item>>({
-    sku: '', name: '', category: '', price: 0, location: '', minLevel: 0, currentStock: 0, unit: 'pcs', status: 'Active'
+    sku: '', name: '', category: '', price: 0, location: '', minLevel: 0, currentStock: 0, unit: 'pcs', status: 'Active', conversionRate: 1, secondaryUnit: ''
   });
 
   const filteredItems = items.filter(item => 
@@ -39,7 +39,7 @@ const Inventory: React.FC = () => {
     } else {
       setEditingItem(null);
       setFormData({
-        sku: '', name: '', category: '', price: 0, location: '', minLevel: 0, currentStock: 0, unit: 'pcs', status: 'Active'
+        sku: '', name: '', category: '', price: 0, location: '', minLevel: 0, currentStock: 0, unit: 'pcs', status: 'Active', conversionRate: 1, secondaryUnit: ''
       });
     }
     setIsModalOpen(true);
@@ -57,7 +57,19 @@ const Inventory: React.FC = () => {
 
   const downloadTemplate = () => {
     const headers = [
-      { SKU: "ELEC-009", Name: "Example Item", Category: "Electronics", Price: 100000, Location: "A-01", "Min Level": 10, Stock: 50, Unit: "pcs", Status: "Active" }
+      { 
+        SKU: "ELEC-009", 
+        Name: "Example Item", 
+        Category: "Electronics", 
+        Price: 100000, 
+        Location: "A-01", 
+        "Min Level": 10, 
+        Stock: 50, 
+        Unit: "pcs", 
+        Status: "Active",
+        "Secondary Unit": "Box",
+        "Items Per Secondary": 12
+      }
     ];
     const ws = utils.json_to_sheet(headers);
     const wb = utils.book_new();
@@ -95,6 +107,8 @@ const Inventory: React.FC = () => {
           currentStock: Number(row.Stock) || 0,
           unit: String(row.Unit || 'pcs'),
           status: (row.Status === 'Inactive' ? 'Inactive' : 'Active') as ItemStatus,
+          conversionRate: Number(row['Items Per Secondary']) || 1,
+          secondaryUnit: String(row['Secondary Unit'] || '')
         });
       });
 
@@ -114,6 +128,43 @@ const Inventory: React.FC = () => {
     
     // Clear notification after 3s
     setTimeout(() => setNotification(null), 5000);
+  };
+
+  // Helper to cleanly display multi-unit stock
+  const formatStockDisplay = (item: Item) => {
+    if (!item.conversionRate || item.conversionRate <= 1 || !item.secondaryUnit) {
+      return (
+        <div className="flex flex-col items-center">
+          <span className={`font-semibold ${item.currentStock <= item.minLevel ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
+            {item.currentStock}
+          </span>
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">{item.unit}</span>
+        </div>
+      );
+    }
+
+    const secondaryCount = Math.floor(item.currentStock / item.conversionRate);
+    const remainder = item.currentStock % item.conversionRate;
+
+    return (
+      <div className="flex flex-col items-center">
+        <div className={`font-semibold flex items-center gap-1 ${item.currentStock <= item.minLevel ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
+          {secondaryCount > 0 && (
+            <span>{secondaryCount} <span className="text-xs font-normal text-zinc-500">{item.secondaryUnit}</span></span>
+          )}
+          {secondaryCount > 0 && remainder > 0 && <span className="text-zinc-400 text-xs">+</span>}
+          {remainder > 0 && (
+            <span>{remainder} <span className="text-xs font-normal text-zinc-500">{item.unit}</span></span>
+          )}
+          {secondaryCount === 0 && remainder === 0 && (
+            <span>0 <span className="text-xs font-normal text-zinc-500">{item.unit}</span></span>
+          )}
+        </div>
+        <div className="text-[10px] text-zinc-400 dark:text-zinc-600">
+           Total: {item.currentStock} {item.unit}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -209,15 +260,8 @@ const Inventory: React.FC = () => {
                   <td className="px-6 py-4 text-zinc-900 dark:text-zinc-100 text-right font-medium">
                     Rp {item.price.toLocaleString('id-ID')}
                   </td>
-                  <td className="px-6 py-4 text-center">
-                    <div className="flex flex-col items-center">
-                      <span className={`font-semibold ${
-                        item.currentStock <= item.minLevel ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'
-                      }`}>
-                        {item.currentStock}
-                      </span>
-                      <span className="text-xs text-zinc-400 dark:text-zinc-500">{item.unit}</span>
-                    </div>
+                  <td className="px-6 py-4 text-center align-middle">
+                    {formatStockDisplay(item)}
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
@@ -338,7 +382,7 @@ const Inventory: React.FC = () => {
                   />
                 </div>
                  <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Unit (e.g., pcs, box)</label>
+                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Base Unit (e.g., pcs)</label>
                   <input 
                     required 
                     type="text" 
@@ -357,6 +401,34 @@ const Inventory: React.FC = () => {
                     value={formData.minLevel}
                     onChange={e => setFormData({...formData, minLevel: Number(e.target.value)})}
                   />
+                </div>
+                
+                {/* Secondary Unit / Conversion Section */}
+                <div className="md:col-span-2 grid grid-cols-2 gap-4 border-t border-dashed border-zinc-200 dark:border-zinc-800 pt-4 mt-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Secondary Unit (e.g., Box)</label>
+                    <input 
+                      type="text" 
+                      placeholder="Optional"
+                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none placeholder-zinc-400"
+                      value={formData.secondaryUnit}
+                      onChange={e => setFormData({...formData, secondaryUnit: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Items per Secondary Unit</label>
+                    <input 
+                      type="number" 
+                      min="1"
+                      placeholder="1"
+                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
+                      value={formData.conversionRate}
+                      onChange={e => setFormData({...formData, conversionRate: Number(e.target.value)})}
+                    />
+                  </div>
+                  <p className="md:col-span-2 text-xs text-zinc-400">
+                    Define a secondary unit to track stock in larger packages (e.g., 1 Box = 12 Pcs). Stock is always stored in base units.
+                  </p>
                 </div>
               </div>
               

@@ -159,6 +159,21 @@ const Transactions: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const getStockDisplay = (item: Item) => {
+    if (activeTab === 'Inbound') return item.unit;
+    
+    if (item.conversionRate && item.conversionRate > 1 && item.secondaryUnit) {
+      const big = Math.floor(item.currentStock / item.conversionRate);
+      const small = item.currentStock % item.conversionRate;
+      let text = `Stock: ${item.currentStock} ${item.unit}`;
+      if (big > 0) {
+        text += ` (${big} ${item.secondaryUnit}${small > 0 ? ` + ${small} ${item.unit}` : ''})`;
+      }
+      return text;
+    }
+    return `Stock: ${item.currentStock} ${item.unit}`;
+  };
+
   return (
     <div className="space-y-6">
       {/* Sticky Header */}
@@ -233,10 +248,14 @@ const Transactions: React.FC = () => {
                         onClick={() => selectItem(item)}
                         onMouseEnter={() => setHighlightedIndex(index)}
                       >
-                        <span className="font-semibold">{item.sku}</span> - {item.name}
-                        <span className="text-xs text-zinc-400 dark:text-zinc-500 ml-2">
-                          ({activeTab === 'Outbound' ? `Stock: ${item.currentStock}` : item.unit})
-                        </span>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <span className="font-semibold">{item.sku}</span> - {item.name}
+                          </div>
+                          <div className="text-xs text-zinc-400 dark:text-zinc-500 ml-2">
+                             {getStockDisplay(item)}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
