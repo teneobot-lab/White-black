@@ -1,17 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { Transaction, CartItem } from '../types';
-import { ArrowDownLeft, ArrowUpRight, FileText, Calendar, Filter, Download, Image, X, Edit2, Plus, Trash2, FileSpreadsheet, Search, CheckCircle } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, FileText, Calendar, Filter, Download, Image, X, Edit2, Plus, Trash2, FileSpreadsheet, Search, CheckCircle, Package } from 'lucide-react';
 import { utils, writeFile } from 'xlsx';
 
 const History: React.FC = () => {
   const { transactions, items, updateTransaction, deleteTransaction } = useAppStore();
 
   // Search & Filter State
-  const [filterText, setFilterText] = useState('');
+  const [filterText, setFilterText] = useState(''); // General ID/Supplier search
+  const [filterItemText, setFilterItemText] = useState(''); // Specific Item search
   const [filterType, setFilterType] = useState<'All' | 'Inbound' | 'Outbound'>('All');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  
+  // Autocomplete State
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
 
   // Modal State
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -32,15 +37,49 @@ const History: React.FC = () => {
   const [addItemQty, setAddItemQty] = useState(1);
   const [isAddItemDropdownOpen, setIsAddItemDropdownOpen] = useState(false);
 
+  // Click outside to close filter dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setIsFilterDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Filter Suggestions Logic
+  const filterSuggestions = items.filter(i => 
+    filterItemText && 
+    (i.name.toLowerCase().includes(filterItemText.toLowerCase()) || 
+     i.sku.toLowerCase().includes(filterItemText.toLowerCase()))
+  ).slice(0, 8);
+
+  const handleSelectFilterItem = (name: string) => {
+    setFilterItemText(name);
+    setIsFilterDropdownOpen(false);
+  };
+
+  // Advanced Filtering Logic
   const filteredTransactions = transactions.filter(trx => {
-    const matchesText = 
+    // 1. General Text Filter (ID, Supplier, Ref)
+    const matchesGeneralText = 
       trx.transactionId.toLowerCase().includes(filterText.toLowerCase()) ||
       trx.supplierName?.toLowerCase().includes(filterText.toLowerCase()) ||
       trx.riNumber?.toLowerCase().includes(filterText.toLowerCase()) ||
       trx.sjNumber?.toLowerCase().includes(filterText.toLowerCase());
     
+    // 2. Item Specific Filter
+    // If filterItemText is set, check if ANY item in the transaction matches
+    const matchesItem = !filterItemText || trx.items.some(i => 
+      i.itemName.toLowerCase().includes(filterItemText.toLowerCase()) ||
+      i.sku.toLowerCase().includes(filterItemText.toLowerCase())
+    );
+
+    // 3. Type Filter
     const matchesType = filterType === 'All' || trx.type === filterType;
     
+    // 4. Date Range Filter
     let matchesDate = true;
     if (startDate && endDate) {
       const trxDate = new Date(trx.date).getTime();
@@ -49,7 +88,7 @@ const History: React.FC = () => {
       matchesDate = trxDate >= start && trxDate < end;
     }
 
-    return matchesText && matchesType && matchesDate;
+    return matchesGeneralText && matchesItem && matchesType && matchesDate;
   });
 
   // Filter items for the "Add Item" dropdown in modal
@@ -125,12 +164,21 @@ const History: React.FC = () => {
     const wb = utils.book_new();
     let hasData = false;
 
+    // Helper to filter items inside a transaction based on the Item Search input
+    // This allows exporting ONLY the specific item user searched for, even if the transaction has others.
+    const getExportableItems = (trx: Transaction) => {
+      if (!filterItemText) return trx.items;
+      return trx.items.filter(i => 
+        i.itemName.toLowerCase().includes(filterItemText.toLowerCase()) ||
+        i.sku.toLowerCase().includes(filterItemText.toLowerCase())
+      );
+    };
+
     // 1. Process Inbound
     const inboundTrx = filteredTransactions.filter(t => t.type === 'Inbound');
     if (inboundTrx.length > 0) {
-      // Flatten data: create a row for each item in the transaction to show SKU clearly
       const inboundData = inboundTrx.flatMap(trx => 
-        trx.items.map(item => ({
+        getExportableItems(trx).map(item => ({
           "Transaction ID": trx.transactionId,
           "Date": new Date(trx.date).toLocaleDateString() + ' ' + new Date(trx.date).toLocaleTimeString(),
           "Supplier": trx.supplierName || '-',
@@ -142,17 +190,19 @@ const History: React.FC = () => {
           "Input Unit": item.inputUnit || '-'
         }))
       );
-      const wsIn = utils.json_to_sheet(inboundData);
-      utils.book_append_sheet(wb, wsIn, "Inbound");
-      hasData = true;
+      
+      if (inboundData.length > 0) {
+        const wsIn = utils.json_to_sheet(inboundData);
+        utils.book_append_sheet(wb, wsIn, "Inbound");
+        hasData = true;
+      }
     }
 
     // 2. Process Outbound
     const outboundTrx = filteredTransactions.filter(t => t.type === 'Outbound');
     if (outboundTrx.length > 0) {
-      // Flatten data for Outbound as well
       const outboundData = outboundTrx.flatMap(trx => 
-        trx.items.map(item => ({
+        getExportableItems(trx).map(item => ({
           "Transaction ID": trx.transactionId,
           "Date": new Date(trx.date).toLocaleDateString() + ' ' + new Date(trx.date).toLocaleTimeString(),
           "Surat Jalan (SJ)": trx.sjNumber || '-',
@@ -162,13 +212,21 @@ const History: React.FC = () => {
           "Input Unit": item.inputUnit || '-'
         }))
       );
-      const wsOut = utils.json_to_sheet(outboundData);
-      utils.book_append_sheet(wb, wsOut, "Outbound");
-      hasData = true;
+
+      if (outboundData.length > 0) {
+        const wsOut = utils.json_to_sheet(outboundData);
+        utils.book_append_sheet(wb, wsOut, "Outbound");
+        hasData = true;
+      }
     }
 
     if (hasData) {
-      writeFile(wb, `Transaction_History_${new Date().toISOString().split('T')[0]}.xlsx`);
+      // Create filename based on filters for better UX
+      const datePart = startDate ? `_${startDate}_to_${endDate || 'now'}` : '';
+      const itemPart = filterItemText ? `_${filterItemText.replace(/[^a-z0-9]/gi, '')}` : '';
+      writeFile(wb, `History${itemPart}${datePart}.xlsx`);
+    } else {
+      alert("No matching items found to export with current filters.");
     }
   };
 
@@ -227,34 +285,70 @@ const History: React.FC = () => {
           </button>
         </div>
         
-        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col lg:flex-row gap-4 transition-colors">
-          <div className="flex-1">
-             <input 
-              type="text" 
-              placeholder="Search ID, Supplier, Ref..."
-              className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-             />
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <select 
-              className="px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value as any)}
-            >
-              <option value="All">All Types</option>
-              <option value="Inbound">Inbound</option>
-              <option value="Outbound">Outbound</option>
-            </select>
-            
-            <div className="flex items-center gap-2">
+        {/* Advanced Filters Grid */}
+        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+             {/* 1. Transaction ID / Ref Search */}
+             <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input 
+                  type="text" 
+                  placeholder="Search ID, Supplier, Ref..."
+                  className="w-full pl-9 pr-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                />
+             </div>
+
+             {/* 2. Item Name / SKU Search (With Autocomplete) */}
+             <div className="relative" ref={filterDropdownRef}>
+                <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input 
+                  type="text" 
+                  placeholder="Filter Item Name/SKU..."
+                  className="w-full pl-9 pr-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                  value={filterItemText}
+                  onChange={(e) => {
+                    setFilterItemText(e.target.value);
+                    setIsFilterDropdownOpen(true);
+                  }}
+                  onFocus={() => setIsFilterDropdownOpen(true)}
+                />
+                {isFilterDropdownOpen && filterSuggestions.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filterSuggestions.map(item => (
+                      <div 
+                        key={item.id} 
+                        className="px-4 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer text-sm flex flex-col border-b border-zinc-50 dark:border-zinc-800 last:border-0"
+                        onClick={() => handleSelectFilterItem(item.name)}
+                      >
+                         <span className="font-medium text-zinc-900 dark:text-zinc-100">{item.name}</span>
+                         <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{item.sku}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+             </div>
+
+             {/* 3. Transaction Type */}
+             <select 
+                className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value as any)}
+              >
+                <option value="All">All Types</option>
+                <option value="Inbound">Inbound</option>
+                <option value="Outbound">Outbound</option>
+              </select>
+              
+             {/* 4. Date Range */}
+             <div className="flex items-center gap-2">
                <input 
                 type="text"
                 placeholder="Start Date"
                 onFocus={(e) => e.target.type = 'date'}
                 onBlur={(e) => { if(!e.target.value) e.target.type = 'text'; }}
-                className="w-full sm:w-auto px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-600"
+                className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-600"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
               />
@@ -264,7 +358,7 @@ const History: React.FC = () => {
                 placeholder="End Date"
                 onFocus={(e) => e.target.type = 'date'}
                 onBlur={(e) => { if(!e.target.value) e.target.type = 'text'; }}
-                className="w-full sm:w-auto px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-600"
+                className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 placeholder-zinc-400 dark:placeholder-zinc-600"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
               />
@@ -331,16 +425,30 @@ const History: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
                      <div className="flex flex-col gap-1">
-                       {trx.items.slice(0, 2).map((item, idx) => (
+                       {/* If filtering by item, emphasize that item */}
+                       {trx.items.map((item, idx) => {
+                         const isMatch = filterItemText && (item.itemName.toLowerCase().includes(filterItemText.toLowerCase()) || item.sku.toLowerCase().includes(filterItemText.toLowerCase()));
+                         if (filterItemText && !isMatch) return null;
+                         
+                         return (
+                           <div key={idx} className={`text-xs ${isMatch ? 'font-bold text-blue-600 dark:text-blue-400' : ''}`}>
+                             {item.quantity}x {item.itemName}
+                           </div>
+                         );
+                       })}
+                       
+                       {/* Fallback view if no specific filter or show summary */}
+                       {!filterItemText && trx.items.slice(0, 2).map((item, idx) => (
                          <div key={idx} className="text-xs">
                            {item.quantity}x {item.itemName}
                          </div>
                        ))}
-                       {trx.items.length > 2 && (
+                       {!filterItemText && trx.items.length > 2 && (
                          <div className="text-xs text-zinc-400 dark:text-zinc-500">
                            + {trx.items.length - 2} more items
                          </div>
                        )}
+                       
                        <div className="font-medium text-xs text-zinc-900 dark:text-zinc-100 mt-1">Total: {trx.totalItems}</div>
                      </div>
                   </td>
@@ -391,7 +499,7 @@ const History: React.FC = () => {
           {filteredTransactions.length === 0 && (
             <div className="p-8 text-center text-zinc-400 dark:text-zinc-500 flex flex-col items-center">
               <FileText className="w-12 h-12 mb-2 opacity-20" />
-              No transactions found.
+              No transactions found matching criteria.
             </div>
           )}
         </div>
