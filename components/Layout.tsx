@@ -24,7 +24,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { isDarkMode, toggleTheme, backendOnline, lastError, refreshData } = useAppStore();
+  const { isDarkMode, toggleTheme, backendOnline, lastError, refreshData, apiUrl } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
 
@@ -120,9 +120,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
             <div className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           </div>
-          <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mt-1 truncate">
-            {backendOnline ? 'Proxy: 178.128.106.33' : 'Koneksi Bermasalah'}
-          </p>
+          <div className="flex items-center gap-1.5 mt-1 overflow-hidden">
+            <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase shrink-0">Host:</span>
+            <p className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 truncate">
+              {apiUrl === "/api" ? "Vercel Proxy (178.128.106.33)" : apiUrl.replace('http://', '').replace('https://', '')}
+            </p>
+          </div>
           {!backendOnline && (
             <button 
               onClick={() => refreshData()}

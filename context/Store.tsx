@@ -2,9 +2,6 @@
 import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
-// Menggunakan path relatif agar dihandle oleh Proxy Vercel (vercel.json)
-const API_BASE = "/api";
-
 interface AppContextType {
   items: Item[];
   transactions: Transaction[];
@@ -26,6 +23,8 @@ interface AppContextType {
   backendOnline: boolean;
   lastError: string | null;
   refreshData: () => Promise<void>;
+  apiUrl: string;
+  updateApiUrl: (url: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -38,6 +37,14 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  
+  // Load API URL from localStorage or default to proxy path
+  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "/api");
+
+  const updateApiUrl = (newUrl: string) => {
+    localStorage.setItem('jupiter_api_url', newUrl);
+    setApiUrl(newUrl);
+  };
 
   const mapItem = (dbItem: any): Item => ({
     id: dbItem.id,
@@ -58,9 +65,9 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     try {
       setLastError(null);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout untuk proxy
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const res = await fetch(`${API_BASE}/sync`, {
+      const res = await fetch(`${apiUrl}/sync`, {
         method: 'GET',
         signal: controller.signal,
         headers: { 'Accept': 'application/json' }
@@ -81,21 +88,19 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     } catch (e: any) { 
       setBackendOnline(false);
       console.error("Connection Error:", e);
-      setLastError(e.message === 'Failed to fetch' 
-        ? "Gagal terhubung ke proxy API. Pastikan VPS 178.128.106.33 aktif." 
-        : `Koneksi Error: ${e.message}`);
+      setLastError(e.name === 'AbortError' ? "Koneksi Timeout" : `Error: ${e.message}`);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 45000); // Sync setiap 45 detik
+    const interval = setInterval(fetchData, 45000);
     return () => clearInterval(interval);
-  }, []);
+  }, [apiUrl]); // Re-fetch if API URL changes
 
   const addItem = async (newItem: Omit<Item, 'id'>) => {
     try {
-      const res = await fetch(`${API_BASE}/items`, {
+      const res = await fetch(`${apiUrl}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newItem, min_level: newItem.minLevel, current_stock: newItem.currentStock })
@@ -110,7 +115,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const updateItem = async (updatedItem: Item) => {
     try {
-      const res = await fetch(`${API_BASE}/items/${updatedItem.id}`, {
+      const res = await fetch(`${apiUrl}/items/${updatedItem.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedItem, min_level: updatedItem.minLevel, current_stock: updatedItem.currentStock })
@@ -121,14 +126,14 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const deleteItem = async (id: string) => {
     try {
-      const res = await fetch(`${API_BASE}/items/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${apiUrl}/items/${id}`, { method: 'DELETE' });
       if (res.ok) fetchData();
     } catch (e) { console.error(e); }
   };
 
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
     try {
-      const res = await fetch(`${API_BASE}/transactions`, {
+      const res = await fetch(`${apiUrl}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trx: { type, items: cart, ...details }, items_update: cart.map(c => ({ id: c.itemId, quantity: c.quantity, type })) })
@@ -140,14 +145,14 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const deleteTransaction = async (id: string) => {
     try {
-      await fetch(`${API_BASE}/transactions/${id}`, { method: 'DELETE' });
+      await fetch(`${apiUrl}/transactions/${id}`, { method: 'DELETE' });
       fetchData();
     } catch (e) { console.error(e); }
   };
 
   const addRejectLog = async (log: RejectLog) => {
     try {
-      await fetch(`${API_BASE}/reject-logs`, {
+      await fetch(`${apiUrl}/reject-logs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(log)
@@ -158,7 +163,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const updateRejectMaster = async (newList: RejectItem[]) => {
     try {
-      await fetch(`${API_BASE}/reject-master/sync`, {
+      await fetch(`${apiUrl}/reject-master/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: newList })
@@ -176,7 +181,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       processTransaction, deleteTransaction, updateTransaction: () => true,
       addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
       updateRejectMaster, isDarkMode, toggleTheme, backendOnline, lastError,
-      refreshData: fetchData
+      refreshData: fetchData, apiUrl, updateApiUrl
     }}>
       {children}
     </AppContext.Provider>
