@@ -36,11 +36,6 @@ const History: React.FC = () => {
     items: CartItem[];
   }>({ photos: [], items: [] });
 
-  // Add Item to Edit State
-  const [addItemSearch, setAddItemSearch] = useState('');
-  const [addItemQty, setAddItemQty] = useState(1);
-  const [isAddItemDropdownOpen, setIsAddItemDropdownOpen] = useState(false);
-
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
@@ -77,21 +72,27 @@ const History: React.FC = () => {
     setIsFilterDropdownOpen(false);
   };
 
-  // Advanced Filtering Logic - Ditingkatkan dengan Null Safety yang Sangat Ketat
+  // Advanced Filtering Logic - Sangat Defensif terhadap nilai NULL
   const filteredTransactions = useMemo(() => {
-    return (transactions || []).filter(trx => {
+    if (!transactions) return [];
+    
+    return transactions.filter(trx => {
+      // Pastikan semua properti yang diakses memiliki nilai default jika null
       const trxId = (trx.transactionId || "").toLowerCase();
       const supplier = (trx.supplierName || "").toLowerCase();
       const ri = (trx.riNumber || "").toLowerCase();
       const sj = (trx.sjNumber || "").toLowerCase();
       const search = filterText.toLowerCase();
 
-      const matchesGeneralText = 
+      // Filter Pencarian Umum
+      const matchesGeneralText = !filterText || (
         trxId.includes(search) ||
         supplier.includes(search) ||
         ri.includes(search) ||
-        sj.includes(search);
+        sj.includes(search)
+      );
       
+      // Filter Nama Item di dalam transaksi
       const trxItems = Array.isArray(trx.items) ? trx.items : [];
       const itemSearch = filterItemText.toLowerCase();
       const matchesItem = !filterItemText || trxItems.some(i => 
@@ -99,19 +100,22 @@ const History: React.FC = () => {
         (i.sku || "").toLowerCase().includes(itemSearch)
       );
 
+      // Filter Tipe
       const matchesType = filterType === 'All' || trx.type === filterType;
       
+      // Filter Tanggal
       let matchesDate = true;
       if (startDate && endDate) {
         try {
-          const trxDate = new Date(trx.date).getTime();
+          const tDate = new Date(trx.date);
+          const trxTime = tDate.getTime();
           const start = new Date(startDate).getTime();
           const end = new Date(endDate).getTime() + 86400000;
-          if (!isNaN(trxDate)) {
-            matchesDate = trxDate >= start && trxDate < end;
+          if (!isNaN(trxTime)) {
+            matchesDate = trxTime >= start && trxTime < end;
           }
         } catch (e) {
-          matchesDate = true; // Abaikan filter tanggal jika error agar data tidak hilang
+          matchesDate = true; 
         }
       }
 
@@ -252,12 +256,17 @@ const History: React.FC = () => {
                 const isExpanded = expandedRows.has(trx.id);
                 const trxItems = Array.isArray(trx.items) ? trx.items : [];
                 const visibleItems = isExpanded ? trxItems : trxItems.slice(0, 3);
+                
+                // Parsing tanggal aman
+                const tDate = new Date(trx.date);
+                const displayDate = isNaN(tDate.getTime()) ? '-' : tDate.toLocaleDateString();
+                const displayTime = isNaN(tDate.getTime()) ? '' : tDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
                 return (
                   <tr key={trx.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors align-top">
-                    <td className="px-6 py-4 font-mono text-zinc-900 dark:text-zinc-100 font-medium">{trx.transactionId}</td>
+                    <td className="px-6 py-4 font-mono text-zinc-900 dark:text-zinc-100 font-bold">{trx.transactionId}</td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
                         trx.type === 'Inbound' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
                       }`}>
                         {trx.type === 'Inbound' ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
@@ -268,48 +277,49 @@ const History: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-zinc-400" />
                         <div>
-                          <div className="whitespace-nowrap">{new Date(trx.date).toLocaleDateString()}</div>
-                          <div className="text-xs opacity-50">{new Date(trx.date).toLocaleTimeString()}</div>
+                          <div className="whitespace-nowrap font-medium">{displayDate}</div>
+                          <div className="text-[10px] opacity-50 font-bold uppercase">{displayTime}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
                       <div className="flex flex-col">
-                         <span className="text-zinc-900 dark:text-zinc-200 font-medium truncate max-w-[150px]">{trx.supplierName || trx.sjNumber || '-'}</span>
-                         <span className="text-[10px] text-zinc-500 mt-0.5">{trx.riNumber || trx.poNumber || ''}</span>
+                         <span className="text-zinc-900 dark:text-zinc-200 font-bold truncate max-w-[150px] uppercase tracking-tighter">{trx.supplierName || trx.sjNumber || '-'}</span>
+                         <span className="text-[10px] text-zinc-500 mt-0.5 font-mono">{trx.riNumber || trx.poNumber || ''}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400 min-w-[200px]">
                        <div className="flex flex-col gap-1">
                          {visibleItems.map((item, idx) => (
                            <div key={idx} className="text-[11px] flex items-center gap-1">
-                             <span className="shrink-0 font-bold text-zinc-400">{item.quantity}x</span>
-                             <span className="truncate">{item.itemName}</span>
+                             <span className="shrink-0 font-black text-rose-500">{item.quantity}x</span>
+                             <span className="truncate font-medium">{item.itemName}</span>
                            </div>
                          ))}
                          {trxItems.length > 3 && (
-                           <button onClick={() => toggleRow(trx.id)} className="text-[10px] font-bold text-blue-500 mt-1 flex items-center gap-1">
-                             {isExpanded ? <><ChevronUp className="w-3 h-3" /> Show Less</> : <><ChevronDown className="w-3 h-3" /> +{trxItems.length - 3} More</>}
+                           <button onClick={() => toggleRow(trx.id)} className="text-[10px] font-black text-blue-500 mt-1 flex items-center gap-1 hover:underline uppercase">
+                             {isExpanded ? <><ChevronUp className="w-3 h-3" /> Show Less</> : <><ChevronDown className="w-3 h-3" /> +{trxItems.length - 3} More Items</>}
                            </button>
                          )}
+                         {trxItems.length === 0 && <span className="text-[10px] text-zinc-300 italic">No item data</span>}
                        </div>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      {(trx.photos && trx.photos.length > 0) ? (
+                      {(Array.isArray(trx.photos) && trx.photos.length > 0) ? (
                         <div className="flex justify-center -space-x-2">
                            {trx.photos.slice(0, 2).map((photo, i) => (
-                             <div key={i} onClick={() => setPreviewImage(photo)} className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 overflow-hidden cursor-pointer bg-zinc-100">
-                               <img src={photo} className="w-full h-full object-cover" />
+                             <div key={i} onClick={() => setPreviewImage(photo)} className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 overflow-hidden cursor-pointer bg-zinc-100 hover:scale-110 transition-transform">
+                               <img src={photo} className="w-full h-full object-cover" onError={(e) => (e.currentTarget.src = 'https://placehold.co/100x100?text=ERR')} />
                              </div>
                            ))}
-                           {trx.photos.length > 2 && <div className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold">+{trx.photos.length - 2}</div>}
+                           {trx.photos.length > 2 && <div className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[9px] font-black">+{trx.photos.length - 2}</div>}
                         </div>
-                      ) : <span className="text-xs text-zinc-300">-</span>}
+                      ) : <span className="text-[10px] text-zinc-300">-</span>}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-1">
-                        <button onClick={() => handleOpenEdit(trx)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => deleteTransaction(trx.id)} className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-zinc-400 hover:text-red-600 rounded-full transition-colors"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => handleOpenEdit(trx)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors"><Edit2 className="w-4 h-4 text-blue-500" /></button>
+                        <button onClick={() => { if(confirm('Delete transaction?')) deleteTransaction(trx.id); }} className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-zinc-400 hover:text-red-600 rounded-full transition-colors"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </td>
                   </tr>
@@ -319,11 +329,12 @@ const History: React.FC = () => {
           </table>
           {filteredTransactions.length === 0 && (
             <div className="p-12 text-center text-zinc-400 flex flex-col items-center">
-              <FileText className="w-12 h-12 mb-4 opacity-10" />
-              <p className="font-medium">No transactions found matching your criteria.</p>
+              <FileText className="w-16 h-16 mb-4 opacity-5" />
+              <p className="font-bold text-lg text-zinc-300 dark:text-zinc-600">DATABASE HISTORY EMPTY</p>
+              <p className="text-xs max-w-xs mt-2">Tidak ditemukan transaksi di database lokal atau filter terlalu ketat.</p>
               {(filterText || filterItemText || startDate) && (
-                <button onClick={handleResetFilters} className="mt-4 flex items-center gap-2 text-blue-500 font-bold text-xs uppercase">
-                  <RotateCcw className="w-3 h-3" /> Reset Filters
+                <button onClick={handleResetFilters} className="mt-6 flex items-center gap-2 text-blue-500 font-black text-xs uppercase tracking-widest bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-full border border-blue-100 dark:border-blue-900/50">
+                  <RotateCcw className="w-3 h-3" /> Reset All Filters
                 </button>
               )}
             </div>
@@ -332,9 +343,11 @@ const History: React.FC = () => {
       </div>
 
       {previewImage && (
-        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-           <img src={previewImage} className="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
-           <button onClick={() => setPreviewImage(null)} className="absolute top-6 right-6 text-white p-2 bg-white/10 rounded-full"><X className="w-6 h-6" /></button>
+        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setPreviewImage(null)}>
+           <div className="relative max-w-4xl w-full">
+             <img src={previewImage} className="w-full h-auto max-h-[85vh] object-contain rounded-lg shadow-2xl" />
+             <button onClick={() => setPreviewImage(null)} className="absolute -top-12 right-0 text-white p-2 bg-white/10 rounded-full hover:bg-white/20"><X className="w-6 h-6" /></button>
+           </div>
         </div>
       )}
     </div>

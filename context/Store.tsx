@@ -86,12 +86,14 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     secondaryUnit: dbItem.secondary_unit || ''
   });
 
-  // Helper untuk parsing JSON yang aman di sisi klien
   const safeJsonParse = (val: any) => {
     if (!val) return [];
     if (Array.isArray(val)) return val;
     if (typeof val === 'string') {
-      try { return JSON.parse(val); } catch (e) { return []; }
+      try {
+        const p = JSON.parse(val);
+        return Array.isArray(p) ? p : [p];
+      } catch (e) { return []; }
     }
     return [];
   };
@@ -102,20 +104,27 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
       const data = await res.json();
 
-      // Sanitasi Transaksi: Menjamin items & photos selalu array, bahkan jika backend mengirim string
+      // Sanitasi Mendalam: Pastikan tidak ada field yang null/undefined yang bisa merusak komponen
       const cleanedTransactions = (data.transactions || []).map((t: any) => ({
         ...t,
+        id: t.id || Math.random().toString(36).substr(2, 9),
+        transactionId: t.transactionId || 'TRX-UNK',
         items: safeJsonParse(t.items),
-        photos: safeJsonParse(t.photos)
+        photos: safeJsonParse(t.photos),
+        date: t.date || new Date().toISOString()
       }));
 
       setItems((data.items || []).map(mapItem));
       setTransactions(cleanedTransactions);
       setRejectMasterData(data.rejectMaster || []);
-      setRejectLogs((data.rejectLogs || []).map((l: any) => ({ ...l, items: safeJsonParse(l.items) })));
+      setRejectLogs((data.rejectLogs || []).map((l: any) => ({ 
+        ...l, 
+        items: safeJsonParse(l.items) 
+      })));
       setBackendOnline(true);
       setLastError(null);
     } catch (e: any) {
+      console.error("Fetch Data Error:", e.message);
       setBackendOnline(false);
       setLastError(e.message);
     }
