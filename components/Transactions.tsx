@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { CartItem, Item } from '../types';
-import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X, Box, Layers } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X, Box, Layers, FileDown, Upload, FileSpreadsheet } from 'lucide-react';
+import { read, utils, writeFile } from 'xlsx';
 
 const Transactions: React.FC = () => {
   const { items, processTransaction } = useAppStore();
@@ -27,6 +28,7 @@ const Transactions: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const qtyInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter items for autocomplete
   const filteredItems = items.filter(item => 
@@ -91,7 +93,6 @@ const Transactions: React.FC = () => {
 
     const qtyValue = parseFloat(quantity.toString());
     if (isNaN(qtyValue) || qtyValue <= 0) {
-      // Allow user to correct input
       return;
     }
 
@@ -99,7 +100,6 @@ const Transactions: React.FC = () => {
     let displayUnit = selectedItem.unit;
     let displayInputQty = qtyValue;
 
-    // Calculate base quantity if secondary unit selected
     if (selectedUnit === 'secondary' && selectedItem.secondaryUnit && selectedItem.conversionRate) {
       finalQty = qtyValue * selectedItem.conversionRate;
       displayUnit = selectedItem.secondaryUnit;
@@ -117,7 +117,6 @@ const Transactions: React.FC = () => {
          return;
        }
        
-       // If adding same unit, keep the display unit. If mixed, fallback to base.
        let newInputQty = undefined;
        let newInputUnit = undefined;
        if (existing.inputUnit === displayUnit) {
@@ -143,12 +142,107 @@ const Transactions: React.FC = () => {
       }]);
     }
     
-    // Reset inputs and focus back to search for rapid entry
     setQuantity('');
     setSelectedItem(null);
     setSearchTerm('');
     setMessage(null);
     setTimeout(() => searchInputRef.current?.focus(), 10);
+  };
+
+  const downloadTemplate = () => {
+    const templateData = [
+      { SKU: "ELEC-001", Quantity: 5, Unit: "pcs" },
+      { SKU: "OFF-001", Quantity: 2, Unit: "Box" },
+      { SKU: "ELEC-002", Quantity: 10, Unit: "" }
+    ];
+    const ws = utils.json_to_sheet(templateData);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "TransactionTemplate");
+    writeFile(wb, `Jupiter_${activeTab}_Template.xlsx`);
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData: any[] = utils.sheet_to_json(worksheet);
+
+      let importedCart: CartItem[] = [...cart];
+      let errors: string[] = [];
+      let addedCount = 0;
+
+      for (const row of jsonData) {
+        const sku = String(row.SKU || "").trim();
+        const qtyValue = parseFloat(row.Quantity);
+        const unitLabel = String(row.Unit || "").trim();
+
+        if (!sku || isNaN(qtyValue) || qtyValue <= 0) continue;
+
+        const item = items.find(i => i.sku === sku && i.status === 'Active');
+        if (!item) {
+          errors.push(`SKU ${sku} not found or inactive.`);
+          continue;
+        }
+
+        let finalQty = qtyValue;
+        let displayUnit = item.unit;
+        let displayInputQty = qtyValue;
+
+        // Check if secondary unit is used
+        if (unitLabel && item.secondaryUnit && unitLabel.toLowerCase() === item.secondaryUnit.toLowerCase()) {
+          finalQty = qtyValue * (item.conversionRate || 1);
+          displayUnit = item.secondaryUnit;
+        } else {
+          displayUnit = item.unit;
+        }
+
+        // Check stock for outbound
+        const existingInCart = importedCart.find(c => c.itemId === item.id);
+        const currentCartQty = existingInCart ? existingInCart.quantity : 0;
+
+        if (activeTab === 'Outbound' && (currentCartQty + finalQty) > item.currentStock) {
+          errors.push(`Insufficient stock for ${sku} (${item.name}). Max available: ${item.currentStock}.`);
+          continue;
+        }
+
+        if (existingInCart) {
+          importedCart = importedCart.map(c => c.itemId === item.id ? {
+            ...c,
+            quantity: c.quantity + finalQty,
+            inputQuantity: (c.inputUnit === displayUnit) ? (c.inputQuantity || 0) + displayInputQty : undefined,
+            inputUnit: (c.inputUnit === displayUnit) ? displayUnit : undefined
+          } : c);
+        } else {
+          importedCart.push({
+            itemId: item.id,
+            itemName: item.name,
+            sku: item.sku,
+            quantity: finalQty,
+            currentStock: item.currentStock,
+            inputQuantity: displayInputQty,
+            inputUnit: displayUnit
+          });
+        }
+        addedCount++;
+      }
+
+      setCart(importedCart);
+      if (errors.length > 0) {
+        setMessage({ type: 'error', text: `Imported ${addedCount} items. Errors: ${errors.slice(0, 2).join(', ')}${errors.length > 2 ? '...' : ''}` });
+      } else {
+        setMessage({ type: 'success', text: `Successfully imported ${addedCount} items to cart.` });
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage({ type: 'error', text: 'Failed to process Excel file.' });
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setTimeout(() => setMessage(null), 6000);
   };
 
   const removeFromCart = (id: string) => {
@@ -178,13 +272,10 @@ const Transactions: React.FC = () => {
       return;
     }
 
-    // Validation relaxed based on user request
     if (activeTab === 'Inbound' && !details.supplierName) {
       setMessage({ type: 'error', text: 'Supplier Name is required' });
       return;
     }
-
-    // Outbound validation for SJ removed (optional)
 
     const success = processTransaction(activeTab, cart, { ...details, photos });
     
@@ -199,7 +290,6 @@ const Transactions: React.FC = () => {
     }
   };
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) && !searchInputRef.current?.contains(event.target as Node)) {
@@ -225,7 +315,6 @@ const Transactions: React.FC = () => {
     return `Stock: ${item.currentStock} ${item.unit}`;
   };
 
-  // Helper to get base unit from cart item
   const getCartItemBaseUnit = (cartItem: CartItem) => {
       const originalItem = items.find(i => i.id === cartItem.itemId);
       return originalItem ? originalItem.unit : 'units';
@@ -233,12 +322,10 @@ const Transactions: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Sticky Header */}
       <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Transactions</h1>
         <p className="text-zinc-500 dark:text-zinc-400 mb-4">Create inbound or outbound stock movements.</p>
         
-        {/* Tab Switcher */}
         <div className="bg-zinc-100 dark:bg-zinc-900 p-1 rounded-lg inline-flex w-full md:w-auto border border-zinc-200 dark:border-zinc-800 transition-colors">
           <button
             onClick={() => { setActiveTab('Outbound'); setCart([]); setMessage(null); }}
@@ -260,16 +347,34 @@ const Transactions: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Input Form */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Item Selection Card */}
           <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
-            <h3 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Add Items to Cart
-            </h3>
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Plus className="w-4 h-4" /> Add Items to Cart
+              </h3>
+              <div className="flex gap-2">
+                <button 
+                  onClick={downloadTemplate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 rounded-lg text-[11px] font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                  title="Download Excel Template"
+                >
+                  <FileDown className="w-3.5 h-3.5" /> Template
+                </button>
+                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 rounded-lg text-[11px] font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer transition-colors">
+                  <Upload className="w-3.5 h-3.5" /> Import Excel
+                  <input 
+                    ref={fileInputRef}
+                    type="file" 
+                    accept=".xlsx, .xls" 
+                    className="hidden" 
+                    onChange={handleImport}
+                  />
+                </label>
+              </div>
+            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-              {/* Search Field */}
               <div className="md:col-span-2 relative">
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Select Item</label>
                 <div className="relative">
@@ -283,7 +388,7 @@ const Transactions: React.FC = () => {
                     onChange={(e) => {
                       setSearchTerm(e.target.value);
                       setIsDropdownOpen(true);
-                      setSelectedItem(null); // Clear selection if typing
+                      setSelectedItem(null);
                       setHighlightedIndex(0);
                     }}
                     onFocus={() => setIsDropdownOpen(true)}
@@ -292,7 +397,6 @@ const Transactions: React.FC = () => {
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
                 </div>
                 
-                {/* Autocomplete Dropdown */}
                 {isDropdownOpen && filteredItems.length > 0 && (
                   <div ref={dropdownRef} className="absolute z-30 w-full mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     {filteredItems.map((item, index) => (
@@ -320,7 +424,6 @@ const Transactions: React.FC = () => {
                 )}
               </div>
 
-              {/* Unit Selection */}
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                   Unit 
@@ -346,7 +449,6 @@ const Transactions: React.FC = () => {
                 </div>
               </div>
 
-              {/* Quantity */}
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Qty</label>
                 <input 
@@ -380,7 +482,6 @@ const Transactions: React.FC = () => {
             )}
           </div>
 
-          {/* Transaction Details */}
           <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
             <h3 className="font-semibold text-zinc-900 dark:text-white">Document Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -427,7 +528,6 @@ const Transactions: React.FC = () => {
               )}
             </div>
 
-            {/* Photo Upload (Inbound Only) */}
             {activeTab === 'Inbound' && (
               <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2 flex items-center gap-2">
@@ -462,7 +562,6 @@ const Transactions: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Cart Summary */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm h-full flex flex-col sticky top-24 transition-colors">
             <div className="flex items-center justify-between mb-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
@@ -492,7 +591,6 @@ const Transactions: React.FC = () => {
                                  <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
                                      {item.inputQuantity} {item.inputUnit}
                                  </span>
-                                 {/* Only show calculated base units if the unit is secondary */}
                                  {item.inputUnit !== getCartItemBaseUnit(item) && (
                                      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
                                          = {item.quantity} {getCartItemBaseUnit(item)}
