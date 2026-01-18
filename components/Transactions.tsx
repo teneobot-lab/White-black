@@ -1,17 +1,14 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { CartItem, Item } from '../types';
-import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X, Box, Layers, FileDown, Upload, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, Camera, X, Box, Layers, FileDown, Upload, FileSpreadsheet } from 'lucide-react';
 import { read, utils, writeFile } from 'xlsx';
 
-// Fix error in components/Transactions.tsx: Added return statement and export default to fix TS and export errors.
 const Transactions: React.FC = () => {
-  const { items, processTransaction, addItems } = useAppStore();
+  const { items, processTransaction, addItems, updateItem } = useAppStore();
   
   const [activeTab, setActiveTab] = useState<'Inbound' | 'Outbound'>('Outbound');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
   
   // Autocomplete State
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,11 +21,13 @@ const Transactions: React.FC = () => {
   const [selectedUnit, setSelectedUnit] = useState<'base' | 'secondary'>('base');
   
   const [details, setDetails] = useState({ supplierName: '', poNumber: '', riNumber: '', sjNumber: '' });
+  const [photos, setPhotos] = useState<string[]>([]);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
 
   // Refs for Focus Management
   const searchInputRef = useRef<HTMLInputElement>(null);
   const qtyInputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter items for autocomplete
@@ -46,6 +45,24 @@ const Transactions: React.FC = () => {
     setSelectedUnit('base');
   }, [activeTab]);
 
+  // Keyboard Navigation for Autocomplete
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex(prev => Math.min(prev + 1, filteredItems.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex(prev => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredItems.length > 0) {
+        selectItem(filteredItems[highlightedIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setIsDropdownOpen(false);
+    }
+  };
+
   const selectItem = (item: Item) => {
     setSelectedItem(item);
     setSearchTerm(`${item.sku} - ${item.name}`);
@@ -60,23 +77,10 @@ const Transactions: React.FC = () => {
     setTimeout(() => qtyInputRef.current?.focus(), 10);
   };
 
-  // Keyboard Navigation for Autocomplete
-  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
+  const handleQtyKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
       e.preventDefault();
-      setHighlightedIndex(prev => Math.min(prev + 1, filteredItems.length - 1));
-      setIsDropdownOpen(true);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlightedIndex(prev => Math.max(prev - 1, 0));
-      setIsDropdownOpen(true);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (isDropdownOpen && filteredItems.length > 0) {
-        selectItem(filteredItems[highlightedIndex]);
-      }
-    } else if (e.key === 'Escape') {
-      setIsDropdownOpen(false);
+      addToCart();
     }
   };
 
@@ -109,11 +113,18 @@ const Transactions: React.FC = () => {
          return;
        }
        
+       let newInputQty = undefined;
+       let newInputUnit = undefined;
+       if (existing.inputUnit === displayUnit) {
+           newInputQty = (existing.inputQuantity || 0) + displayInputQty;
+           newInputUnit = displayUnit;
+       }
+
        setCart(cart.map(c => c.itemId === selectedItem.id ? { 
            ...c, 
            quantity: c.quantity + finalQty,
-           inputQuantity: (c.inputQuantity || 0) + displayInputQty,
-           inputUnit: displayUnit
+           inputQuantity: newInputQty,
+           inputUnit: newInputUnit
        } : c));
     } else {
       setCart([...cart, { 
@@ -134,30 +145,11 @@ const Transactions: React.FC = () => {
     setTimeout(() => searchInputRef.current?.focus(), 10);
   };
 
-  const handleProcessTransaction = async () => {
-    if (cart.length === 0) return;
-    setIsProcessing(true);
-    try {
-      const success = await processTransaction(activeTab, cart, details);
-      if (success) {
-        setCart([]);
-        setDetails({ supplierName: '', poNumber: '', riNumber: '', sjNumber: '' });
-        setMessage({ type: 'success', text: 'Transaction processed successfully!' });
-        setTimeout(() => setMessage(null), 3000);
-      } else {
-        setMessage({ type: 'error', text: 'Failed to process transaction.' });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'An unexpected error occurred.' });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const downloadTemplate = () => {
     const templateData = [
       { SKU: "ELEC-001", Name: "Wireless Mouse", Quantity: 5, Unit: "pcs" },
-      { SKU: "OFF-001", Name: "A4 Paper Ream", Quantity: 2, Unit: "Box" }
+      { SKU: "OFF-001", Name: "A4 Paper Ream", Quantity: 2, Unit: "Box" },
+      { SKU: "NEW-ITEM-99", Name: "Example Auto-Create Item", Quantity: 10, Unit: "pcs" }
     ];
     const ws = utils.json_to_sheet(templateData);
     const wb = utils.book_new();
@@ -175,240 +167,541 @@ const Transactions: React.FC = () => {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData: any[] = utils.sheet_to_json(worksheet);
 
-      const newCartItems: CartItem[] = [];
-      jsonData.forEach((row: any) => {
+      let importedCart: CartItem[] = [...cart];
+      let errors: string[] = [];
+      let addedCount = 0;
+      
+      // Track synchronization actions
+      let newItemsCreatedCount = 0;
+      let stockAdjustedCount = 0;
+
+      // 1. Calculate required totals from Excel to handle stock seeding
+      const requiredBySku: Record<string, { total: number, name: string, unit: string }> = {};
+      
+      for (const row of jsonData) {
         const sku = String(row.SKU || "").trim();
         const qtyValue = parseFloat(row.Quantity);
-        if (!sku || isNaN(qtyValue) || qtyValue <= 0) return;
+        const unitLabel = String(row.Unit || "").trim();
+        if (!sku || isNaN(qtyValue)) continue;
 
-        const item = items.find(i => i.sku === sku);
-        if (item) {
-          newCartItems.push({
+        // Base unit calculation for seeding
+        const existingItemRef = items.find(i => i.sku === sku);
+        let baseQty = qtyValue;
+        if (existingItemRef && unitLabel && existingItemRef.secondaryUnit && unitLabel.toLowerCase() === existingItemRef.secondaryUnit.toLowerCase()) {
+          baseQty = qtyValue * (existingItemRef.conversionRate || 1);
+        }
+
+        if (!requiredBySku[sku]) {
+          requiredBySku[sku] = { total: 0, name: String(row.Name || sku), unit: String(row.Unit || "pcs") };
+        }
+        requiredBySku[sku].total += baseQty;
+      }
+
+      // 2. Perform Pass: Synchronize Inventory (Auto-Add and Auto-Adjust Stock)
+      const newItemsToStore: (Omit<Item, 'id'> & { id: string })[] = [];
+
+      for (const sku in requiredBySku) {
+        const req = requiredBySku[sku];
+        const existingItem = items.find(i => i.sku === sku);
+
+        if (!existingItem) {
+          // Initialize New Item with stock adjusted to match required import if Outbound
+          const newId = Math.random().toString(36).substr(2, 9);
+          const initialStock = activeTab === 'Outbound' ? req.total : 0;
+          
+          const newItem: Item = {
+            id: newId,
+            sku: sku,
+            name: req.name,
+            category: "Uncategorized",
+            price: 0,
+            location: "-",
+            minLevel: 0,
+            status: "Active",
+            currentStock: initialStock,
+            unit: req.unit,
+          };
+          newItemsToStore.push(newItem);
+          newItemsCreatedCount++;
+        } else if (activeTab === 'Outbound' && existingItem.currentStock < req.total) {
+          // Auto-adjust existing item stock so validation passes
+          updateItem({ ...existingItem, currentStock: req.total });
+          stockAdjustedCount++;
+        }
+      }
+
+      // Commit new items to store (this triggers state update)
+      if (newItemsToStore.length > 0) {
+        addItems(newItemsToStore);
+      }
+
+      // 3. Final Pass: Build the cart using the updated inventory environment
+      // We use a short timeout or rely on local mapping because store update is async
+      // For immediate cart building, we simulate the 'next' state of items
+      const localInventory = [...items, ...newItemsToStore].map(item => {
+        const req = requiredBySku[item.sku];
+        if (activeTab === 'Outbound' && req && item.currentStock < req.total) {
+          return { ...item, currentStock: req.total };
+        }
+        return item;
+      });
+
+      for (const row of jsonData) {
+        const sku = String(row.SKU || "").trim();
+        const qtyValue = parseFloat(row.Quantity);
+        const unitLabel = String(row.Unit || "").trim();
+
+        if (!sku || isNaN(qtyValue) || qtyValue <= 0) continue;
+
+        const item = localInventory.find(i => i.sku === sku && i.status === 'Active');
+        if (!item) continue;
+
+        let finalQty = qtyValue;
+        let displayUnit = item.unit;
+        let displayInputQty = qtyValue;
+
+        if (unitLabel && item.secondaryUnit && unitLabel.toLowerCase() === item.secondaryUnit.toLowerCase()) {
+          finalQty = qtyValue * (item.conversionRate || 1);
+          displayUnit = item.secondaryUnit;
+        }
+
+        const existingInCart = importedCart.find(c => c.itemId === item.id);
+        const currentCartQty = existingInCart ? existingInCart.quantity : 0;
+
+        // Validation - Should always pass now due to synchronization step above
+        if (activeTab === 'Outbound' && (currentCartQty + finalQty) > item.currentStock) {
+          errors.push(`Stock mismatch for ${sku}. Required: ${currentCartQty + finalQty}, Available: ${item.currentStock}`);
+          continue;
+        }
+
+        if (existingInCart) {
+          importedCart = importedCart.map(c => c.itemId === item.id ? {
+            ...c,
+            quantity: c.quantity + finalQty,
+            inputQuantity: (c.inputUnit === displayUnit) ? (c.inputQuantity || 0) + displayInputQty : undefined,
+            inputUnit: (c.inputUnit === displayUnit) ? displayUnit : undefined
+          } : c);
+        } else {
+          importedCart.push({
             itemId: item.id,
             itemName: item.name,
             sku: item.sku,
-            quantity: qtyValue,
+            quantity: finalQty,
             currentStock: item.currentStock,
-            inputQuantity: qtyValue,
-            inputUnit: item.unit
+            inputQuantity: displayInputQty,
+            inputUnit: displayUnit
           });
         }
-      });
-
-      if (newCartItems.length > 0) {
-        setCart([...cart, ...newCartItems]);
-        setMessage({ type: 'success', text: `Imported ${newCartItems.length} items to cart.` });
-      } else {
-        setMessage({ type: 'error', text: 'No matching items found in Excel.' });
+        addedCount++;
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to import Excel file.' });
+
+      setCart(importedCart);
+      
+      let successText = `Successfully imported ${addedCount} items to cart.`;
+      const extras = [];
+      if (newItemsCreatedCount > 0) extras.push(`${newItemsCreatedCount} new SKUs created`);
+      if (stockAdjustedCount > 0) extras.push(`${stockAdjustedCount} stock levels auto-adjusted`);
+      
+      if (extras.length > 0) successText += ` (${extras.join(' and ')})`;
+
+      if (errors.length > 0) {
+        setMessage({ type: 'error', text: `${successText} Errors: ${errors.slice(0, 2).join(', ')}` });
+      } else {
+        setMessage({ type: 'success', text: successText });
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage({ type: 'error', text: 'Failed to process Excel file.' });
     }
+
     if (fileInputRef.current) fileInputRef.current.value = '';
-    setTimeout(() => setMessage(null), 3000);
+    setTimeout(() => setMessage(null), 6000);
+  };
+
+  const removeFromCart = (id: string) => {
+    setCart(cart.filter(c => c.itemId !== id));
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPhotos(prev => [...prev, reader.result as string]);
+        };
+        reader.readAsDataURL(file as Blob);
+      });
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos(photos.filter((_, i) => i !== index));
+  };
+
+  const handleProcess = () => {
+    if (cart.length === 0) {
+      setMessage({ type: 'error', text: 'Cart is empty' });
+      return;
+    }
+
+    if (activeTab === 'Inbound' && !details.supplierName) {
+      setMessage({ type: 'error', text: 'Supplier Name is required' });
+      return;
+    }
+
+    const success = processTransaction(activeTab, cart, { ...details, photos });
+    
+    if (success) {
+      setCart([]);
+      setDetails({ supplierName: '', poNumber: '', riNumber: '', sjNumber: '' });
+      setPhotos([]);
+      setMessage({ type: 'success', text: 'Transaction processed successfully!' });
+      setTimeout(() => setMessage(null), 3000);
+    } else {
+      setMessage({ type: 'error', text: 'Transaction failed. Check stock levels.' });
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node) && !searchInputRef.current?.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const getStockDisplay = (item: Item) => {
+    if (activeTab === 'Inbound') return item.unit;
+    
+    if (item.conversionRate && item.conversionRate > 1 && item.secondaryUnit) {
+      const big = Math.floor(item.currentStock / item.conversionRate);
+      const small = item.currentStock % item.conversionRate;
+      let text = `Stock: ${item.currentStock} ${item.unit}`;
+      if (big > 0) {
+        text += ` (${big} ${item.secondaryUnit}${small > 0 ? ` + ${small} ${item.unit}` : ''})`;
+      }
+      return text;
+    }
+    return `Stock: ${item.currentStock} ${item.unit}`;
+  };
+
+  const getCartItemBaseUnit = (cartItem: CartItem) => {
+      const originalItem = items.find(i => i.id === cartItem.itemId);
+      return originalItem ? originalItem.unit : 'units';
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Transactions</h1>
-          <p className="text-zinc-500 dark:text-zinc-400">Process Inbound and Outbound inventory changes.</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={downloadTemplate} className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg text-sm font-medium hover:bg-zinc-50 transition-colors">
-            <FileDown className="w-4 h-4" /> Template
+      <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Transactions</h1>
+        <p className="text-zinc-500 dark:text-zinc-400 mb-4">Create inbound or outbound stock movements.</p>
+        
+        <div className="bg-zinc-100 dark:bg-zinc-900 p-1 rounded-lg inline-flex w-full md:w-auto border border-zinc-200 dark:border-zinc-800 transition-colors">
+          <button
+            onClick={() => { setActiveTab('Outbound'); setCart([]); setMessage(null); }}
+            className={`flex-1 md:w-32 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'Outbound' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+            }`}
+          >
+            Outbound
           </button>
-          <label className="cursor-pointer flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg text-sm font-medium hover:bg-zinc-50 transition-colors">
-            <Upload className="w-4 h-4" /> Import
-            <input ref={fileInputRef} type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
-          </label>
+          <button
+            onClick={() => { setActiveTab('Inbound'); setCart([]); setMessage(null); }}
+            className={`flex-1 md:w-32 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'Inbound' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+            }`}
+          >
+            Inbound
+          </button>
         </div>
       </div>
 
-      <div className="flex border-b border-zinc-200 dark:border-zinc-800">
-        <button 
-          onClick={() => setActiveTab('Outbound')}
-          className={`px-6 py-3 text-sm font-bold border-b-2 transition-all ${activeTab === 'Outbound' ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-100' : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}
-        >
-          OUTBOUND (STOCK OUT)
-        </button>
-        <button 
-          onClick={() => setActiveTab('Inbound')}
-          className={`px-6 py-3 text-sm font-bold border-b-2 transition-all ${activeTab === 'Inbound' ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-100' : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}
-        >
-          INBOUND (STOCK IN)
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-            <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-4">Add Items to Cart</h3>
-            <div className="space-y-4">
-              <div className="relative">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+          <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Plus className="w-4 h-4" /> Add Items to Cart
+              </h3>
+              <div className="flex gap-2">
+                <button 
+                  onClick={downloadTemplate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 rounded-lg text-[11px] font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                  title="Download Excel Template"
+                >
+                  <FileDown className="w-3.5 h-3.5" /> Template
+                </button>
+                <label className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 rounded-lg text-[11px] font-bold hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer transition-colors">
+                  <Upload className="w-3.5 h-3.5" /> Import Excel
                   <input 
+                    ref={fileInputRef}
+                    type="file" 
+                    accept=".xlsx, .xls" 
+                    className="hidden" 
+                    onChange={handleImport}
+                  />
+                </label>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+              <div className="md:col-span-2 relative">
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Select Item</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
+                  <input
                     ref={searchInputRef}
-                    type="text" 
-                    placeholder="Search by SKU or name..." 
-                    className="w-full pl-10 pr-4 py-2 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    type="text"
+                    className="w-full pl-10 pr-4 py-2 border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600"
+                    placeholder="Type name or SKU..."
                     value={searchTerm}
                     onChange={(e) => {
                       setSearchTerm(e.target.value);
                       setIsDropdownOpen(true);
+                      setSelectedItem(null);
+                      setHighlightedIndex(0);
                     }}
+                    onFocus={() => setIsDropdownOpen(true)}
                     onKeyDown={handleSearchKeyDown}
                   />
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
                 </div>
-                {isDropdownOpen && searchTerm && (
-                  <div className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                    {filteredItems.map((item, idx) => (
-                      <div 
-                        key={item.id} 
-                        className={`px-4 py-3 cursor-pointer border-b dark:border-zinc-800 last:border-0 ${idx === highlightedIndex ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'}`}
+                
+                {isDropdownOpen && filteredItems.length > 0 && (
+                  <div ref={dropdownRef} className="absolute z-30 w-full mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filteredItems.map((item, index) => (
+                      <div
+                        key={item.id}
+                        className={`px-4 py-2 cursor-pointer text-sm ${
+                          index === highlightedIndex 
+                            ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white' 
+                            : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                        }`}
                         onClick={() => selectItem(item)}
+                        onMouseEnter={() => setHighlightedIndex(index)}
                       >
-                        <p className="font-bold text-zinc-900 dark:text-zinc-100">{item.name}</p>
-                        <p className="text-xs text-zinc-500">{item.sku} • Stock: {item.currentStock} {item.unit}</p>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <span className="font-semibold">{item.sku}</span> - {item.name}
+                          </div>
+                          <div className="text-xs text-zinc-400 dark:text-zinc-500 ml-2">
+                             {getStockDisplay(item)}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
 
-              {selectedItem && (
-                <div className="flex flex-wrap items-end gap-3 p-4 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-100 dark:border-zinc-800 animate-in fade-in zoom-in duration-200">
-                  <div className="flex-1 min-w-[150px]">
-                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Quantity</label>
-                    <div className="flex gap-2">
-                      <input 
-                        ref={qtyInputRef}
-                        type="number" 
-                        placeholder="0"
-                        className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-zinc-900 focus:outline-none"
-                        value={quantity}
-                        onChange={(e) => setQuantity(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && addToCart()}
-                      />
-                      <select 
-                        className="px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-xs font-bold focus:ring-2 focus:ring-zinc-900 focus:outline-none"
-                        value={selectedUnit}
-                        onChange={(e) => setSelectedUnit(e.target.value as any)}
-                      >
-                        <option value="base">{selectedItem.unit}</option>
-                        {selectedItem.secondaryUnit && <option value="secondary">{selectedItem.secondaryUnit}</option>}
-                      </select>
-                    </div>
-                  </div>
-                  <button onClick={addToCart} className="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-6 py-2.5 rounded-lg text-xs font-black uppercase hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-all">Add To Cart</button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden transition-colors">
-            <div className="p-4 bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
-              <h3 className="text-xs font-black text-zinc-500 uppercase">Cart Inventory</h3>
-              <span className="bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded text-[10px] font-bold">{cart.length} ITEMS</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-zinc-50/50 dark:bg-zinc-800/20 text-[10px] font-black text-zinc-400 uppercase border-b border-zinc-100 dark:border-zinc-800">
-                  <tr>
-                    <th className="px-6 py-3">Item Details</th>
-                    <th className="px-6 py-3">Quantity</th>
-                    <th className="px-6 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {cart.map((c, idx) => (
-                    <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-zinc-900 dark:text-zinc-100 uppercase text-xs">{c.itemName}</p>
-                        <p className="text-[10px] text-zinc-400 font-mono tracking-tighter">{c.sku}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1">
-                          <span className="font-black text-zinc-900 dark:text-zinc-100">{c.inputQuantity || c.quantity}</span>
-                          <span className="text-[10px] font-bold text-zinc-400 uppercase">{c.inputUnit || 'pcs'}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-zinc-300 hover:text-red-500 p-2 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {cart.length === 0 && (
-                    <tr><td colSpan={3} className="px-6 py-12 text-center text-zinc-300 italic text-xs uppercase font-bold tracking-widest">Cart is empty</td></tr>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Unit 
+                  {selectedItem?.secondaryUnit && (
+                      <span className="text-[10px] ml-1 text-blue-600 dark:text-blue-400 font-normal">
+                          {activeTab === 'Inbound' ? '(Recommended: Large)' : '(Recommended: Small)'}
+                      </span>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+                </label>
+                <div className="relative">
+                  <select
+                    disabled={!selectedItem || !selectedItem.secondaryUnit}
+                    value={selectedUnit}
+                    onChange={(e) => setSelectedUnit(e.target.value as 'base' | 'secondary')}
+                    className="w-full pl-3 pr-8 py-2 border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 disabled:opacity-50 disabled:cursor-not-allowed appearance-none"
+                  >
+                     <option value="base">{selectedItem ? selectedItem.unit : 'Unit'}</option>
+                     {selectedItem?.secondaryUnit && (
+                         <option value="secondary">{selectedItem.secondaryUnit}</option>
+                     )}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                </div>
+              </div>
 
-        <div className="space-y-6">
-          <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors sticky top-6">
-            <h3 className="text-xs font-black text-zinc-400 uppercase tracking-widest mb-6">Process Summary</h3>
-            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Qty</label>
+                <input 
+                  ref={qtyInputRef}
+                  type="number" 
+                  step="any"
+                  placeholder="0"
+                  className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  onKeyDown={handleQtyKeyDown}
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={addToCart}
+              disabled={!selectedItem}
+              className="w-full py-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg font-medium text-sm hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Add to Cart <span className="text-xs opacity-70 font-normal ml-1">(Enter)</span>
+            </button>
+
+            {message && (
+              <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${
+                message.type === 'success' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+              }`}>
+                {message.type === 'success' ? <CheckCircle className="w-4 h-4"/> : <AlertCircle className="w-4 h-4"/>}
+                {message.text}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4 transition-colors">
+            <h3 className="font-semibold text-zinc-900 dark:text-white">Document Details</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {activeTab === 'Inbound' ? (
                 <>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase">Supplier Name</label>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Supplier Name *</label>
                     <input 
                       type="text" 
-                      className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
                       value={details.supplierName}
                       onChange={e => setDetails({...details, supplierName: e.target.value})}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase">PO / RI Number</label>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Delivery Note (Optional)</label>
                     <input 
                       type="text" 
-                      className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                      value={details.riNumber}
+                      onChange={e => setDetails({...details, riNumber: e.target.value})}
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">PO Number (Optional)</label>
+                    <input 
+                      type="text" 
+                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
                       value={details.poNumber}
                       onChange={e => setDetails({...details, poNumber: e.target.value})}
                     />
                   </div>
                 </>
               ) : (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase">SJ Number (Surat Jalan)</label>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Surat Jalan (SJ) No (Optional)</label>
                   <input 
                     type="text" 
-                    className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
                     value={details.sjNumber}
                     onChange={e => setDetails({...details, sjNumber: e.target.value})}
                   />
                 </div>
               )}
-              
-              <div className="pt-4">
-                <button 
-                  onClick={handleProcessTransaction}
-                  disabled={cart.length === 0 || isProcessing}
-                  className="w-full py-4 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-all shadow-xl shadow-zinc-200 dark:shadow-none"
-                >
-                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                  FINALIZE {activeTab}
-                </button>
+            </div>
+
+            {activeTab === 'Inbound' && (
+              <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2 flex items-center gap-2">
+                  <Camera className="w-4 h-4" /> Upload Photos
+                </label>
+                <div className="grid grid-cols-4 gap-4">
+                  {photos.map((photo, index) => (
+                    <div key={index} className="relative group aspect-square rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                      <img src={photo} alt={`Upload ${index}`} className="w-full h-full object-cover" />
+                      <button 
+                        onClick={() => removePhoto(index)}
+                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <label className="aspect-square border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-zinc-500 dark:hover:border-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                    <Plus className="w-6 h-6 text-zinc-400 dark:text-zinc-500" />
+                    <span className="text-xs text-zinc-500 dark:text-zinc-500 mt-1">Add Photo</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      multiple 
+                      className="hidden" 
+                      onChange={handlePhotoUpload}
+                    />
+                  </label>
+                </div>
               </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm h-full flex flex-col sticky top-24 transition-colors">
+            <div className="flex items-center justify-between mb-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
+              <h3 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5" /> Current Cart
+              </h3>
+              <span className="text-sm text-zinc-500 dark:text-zinc-400">{cart.length} items</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto max-h-[400px] space-y-3 pr-2">
+              {cart.length === 0 ? (
+                <div className="h-40 flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600">
+                  <ShoppingCart className="w-12 h-12 mb-2 opacity-20" />
+                  <p className="text-sm">Cart is empty</p>
+                </div>
+              ) : (
+                cart.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-zinc-900 dark:text-zinc-100 text-sm">{item.itemName}</p>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">{item.sku}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                         {item.inputQuantity && item.inputUnit ? (
+                             <div className="flex flex-col items-end">
+                                 <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                                     {item.inputQuantity} {item.inputUnit}
+                                 </span>
+                                 {item.inputUnit !== getCartItemBaseUnit(item) && (
+                                     <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                                         = {item.quantity} {getCartItemBaseUnit(item)}
+                                     </span>
+                                 )}
+                             </div>
+                         ) : (
+                             <span className="text-sm font-bold bg-white dark:bg-zinc-900 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100">
+                                {item.quantity} {getCartItemBaseUnit(item)}
+                             </span>
+                         )}
+                      </div>
+                      <button 
+                        onClick={() => removeFromCart(item.itemId)}
+                        className="text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+               <div className="flex justify-between mb-4 text-sm">
+                 <span className="text-zinc-600 dark:text-zinc-400">Total Base Units</span>
+                 <span className="font-bold text-zinc-900 dark:text-white">{cart.reduce((a, b) => a + b.quantity, 0)}</span>
+               </div>
+               <button 
+                 onClick={handleProcess}
+                 disabled={cart.length === 0}
+                 className="w-full py-3 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg font-bold hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
+               >
+                 Process {activeTab}
+               </button>
             </div>
           </div>
-          
-          {message && (
-            <div className={`p-4 rounded-xl border flex items-center gap-3 animate-in fade-in slide-in-from-right-2 duration-300 ${
-              message.type === 'success' ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/10 dark:border-green-900/30 dark:text-green-400' : 'bg-red-50 border-red-100 text-red-700 dark:bg-red-900/10 dark:border-red-900/30 dark:text-red-400'
-            }`}>
-              {message.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-              <span className="text-[10px] font-bold uppercase">{message.text}</span>
-            </div>
-          )}
         </div>
       </div>
     </div>
