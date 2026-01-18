@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppStore } from '../context/Store';
 import { Transaction, CartItem } from '../types';
 import { ArrowDownLeft, ArrowUpRight, FileText, Calendar, Filter, Download, Image, X, Edit2, Plus, Trash2, FileSpreadsheet, Search, CheckCircle, Package } from 'lucide-react';
@@ -48,12 +48,42 @@ const History: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Filter Suggestions Logic
-  const filterSuggestions = items.filter(i => 
-    filterItemText && 
-    (i.name.toLowerCase().includes(filterItemText.toLowerCase()) || 
-     i.sku.toLowerCase().includes(filterItemText.toLowerCase()))
-  ).slice(0, 8);
+  // Optimized & Fuzzy Filter Suggestions Logic
+  const filterSuggestions = useMemo(() => {
+    const query = filterItemText.trim().toLowerCase();
+    if (!query) return [];
+
+    const searchTerms = query.split(/\s+/); // Split input by spaces for multi-word matching
+
+    return items
+      .map(item => {
+        let score = 0;
+        const name = item.name.toLowerCase();
+        const sku = item.sku.toLowerCase();
+
+        // 1. Exact Match (Highest Priority)
+        if (sku === query || name === query) score += 100;
+        
+        // 2. Starts With (High Priority)
+        else if (sku.startsWith(query) || name.startsWith(query)) score += 75;
+        
+        // 3. Contains Substring (Medium Priority)
+        else if (sku.includes(query) || name.includes(query)) score += 50;
+        
+        // 4. Fuzzy / Multi-term match (e.g. "Wire Mouse" -> "Wireless Mouse")
+        else {
+           // Check if ALL words in query exist in Name or SKU
+           const allTermsMatch = searchTerms.every(term => name.includes(term) || sku.includes(term));
+           if (allTermsMatch) score += 25;
+        }
+
+        return { item, score };
+      })
+      .filter(result => result.score > 0) // Remove non-matches
+      .sort((a, b) => b.score - a.score) // Sort by relevance (highest score first)
+      .slice(0, 8) // Limit to top 8 results for performance
+      .map(result => result.item);
+  }, [items, filterItemText]);
 
   const handleSelectFilterItem = (name: string) => {
     setFilterItemText(name);
