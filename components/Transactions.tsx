@@ -422,11 +422,11 @@ const Transactions: React.FC = () => {
               <div className="md:col-span-2 relative">
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Select Item</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-zinc-500" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                   <input
                     ref={searchInputRef}
                     type="text"
-                    className="w-full pl-10 pr-4 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                    className="w-full pl-10 pr-4 py-2 border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600"
                     placeholder="Type name or SKU..."
                     value={searchTerm}
                     onChange={(e) => {

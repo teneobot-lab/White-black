@@ -424,14 +424,14 @@ const RejectManager: React.FC = () => {
                             <div className="md:col-span-6 relative" ref={searchRef}>
                                 <label className="block text-[10px] font-bold text-slate-500 dark:text-zinc-400 mb-1 uppercase">Cari Barang (Reject Master)</label>
                                 <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-zinc-500" />
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                                     <input 
                                         type="text" 
                                         value={searchQuery} 
                                         onFocus={() => setIsAutocompleteOpen(true)} 
                                         onChange={(e) => setSearchQuery(e.target.value)} 
                                         placeholder="Cari SKU atau Nama di Reject Master..." 
-                                        className="w-full pl-9 pr-3 py-2 border dark:border-zinc-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-rose-500 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" 
+                                        className="w-full pl-9 pr-3 py-2 border border-blue-200 dark:border-blue-900/50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100" 
                                     />
                                 </div>
                                 {isAutocompleteOpen && filteredRejectMaster.length > 0 && searchQuery && (
@@ -556,8 +556,8 @@ const RejectManager: React.FC = () => {
           <div className="flex flex-col h-full space-y-4 animate-in fade-in duration-300">
               <div className="flex flex-col sm:flex-row justify-between gap-4">
                   <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input type="text" value={masterSearch} onChange={e => setMasterSearch(e.target.value)} placeholder="Cari Master Data Reject..." className="bg-white dark:bg-zinc-900 border dark:border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500 w-full sm:w-80 text-zinc-900 dark:text-zinc-100" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
+                      <input type="text" value={masterSearch} onChange={e => setMasterSearch(e.target.value)} placeholder="Cari Master Data Reject..." className="bg-blue-50/30 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900/50 rounded-lg pl-9 pr-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 w-full sm:w-80 text-zinc-900 dark:text-zinc-100" />
                   </div>
                   <div className="flex gap-2">
                       <input type="file" accept=".xlsx, .xls" className="hidden" ref={masterImportRef} onChange={handleImportMaster} />
@@ -711,7 +711,7 @@ const RejectManager: React.FC = () => {
                                       onFocus={() => setIsEditAutocompleteOpen(true)} 
                                       onChange={(e) => setEditSearchQuery(e.target.value)} 
                                       placeholder="Cari Barang..." 
-                                      className="w-full px-3 py-2 border dark:border-zinc-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-rose-500 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100" 
+                                      className="w-full px-3 py-2 border border-blue-200 dark:border-blue-900/50 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100" 
                                   />
                                   {isEditAutocompleteOpen && filteredEditRejectMaster.length > 0 && editSearchQuery && (
                                       <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border dark:border-zinc-800 rounded-lg shadow-xl z-[60] max-h-48 overflow-auto">

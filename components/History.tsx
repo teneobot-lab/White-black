@@ -320,11 +320,11 @@ const History: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
              {/* 1. Transaction ID / Ref Search */}
              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                 <input 
                   type="text" 
                   placeholder="Search ID, Supplier, Ref..."
-                  className="w-full pl-9 pr-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                  className="w-full pl-9 pr-3 py-2 border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600"
                   value={filterText}
                   onChange={(e) => setFilterText(e.target.value)}
                 />
@@ -332,11 +332,11 @@ const History: React.FC = () => {
 
              {/* 2. Item Name / SKU Search (With Autocomplete) */}
              <div className="relative" ref={filterDropdownRef}>
-                <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                 <input 
                   type="text" 
                   placeholder="Filter Item Name/SKU..."
-                  className="w-full pl-9 pr-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500"
+                  className="w-full pl-9 pr-3 py-2 border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600"
                   value={filterItemText}
                   onChange={(e) => {
                     setFilterItemText(e.target.value);
@@ -611,11 +611,11 @@ const History: React.FC = () => {
                       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">Add Another Item</p>
                       <div className="flex gap-2">
                          <div className="relative flex-1">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
                             <input 
                                type="text" 
                                placeholder="Search item to add..." 
-                               className="w-full pl-9 pr-3 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm bg-white dark:bg-zinc-950"
+                               className="w-full pl-9 pr-3 py-2 border border-blue-200 dark:border-blue-900/50 rounded-lg text-sm bg-blue-50/30 dark:bg-blue-900/10 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600"
                                value={addItemSearch}
                                onChange={(e) => {
                                  setAddItemSearch(e.target.value);
