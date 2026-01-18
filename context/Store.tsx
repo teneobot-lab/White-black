@@ -2,8 +2,8 @@
 import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
-// Alamat API VPS
-const API_BASE = "http://178.128.106.33:5000/api";
+// Menggunakan path relatif agar dihandle oleh Proxy Vercel (vercel.json)
+const API_BASE = "/api";
 
 interface AppContextType {
   items: Item[];
@@ -58,7 +58,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     try {
       setLastError(null);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 detik timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout untuk proxy
 
       const res = await fetch(`${API_BASE}/sync`, {
         method: 'GET',
@@ -68,7 +68,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       
       clearTimeout(timeoutId);
 
-      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+      if (!res.ok) throw new Error(`Server Error: ${res.status}`);
       
       const data = await res.json();
       
@@ -80,26 +80,19 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setLastError(null);
     } catch (e: any) { 
       setBackendOnline(false);
-      console.error("Connection Debug:", e);
-
-      // Deteksi Mixed Content (HTTPS -> HTTP)
-      if (window.location.protocol === 'https:' && API_BASE.startsWith('http:')) {
-        setLastError("Browser memblokir koneksi HTTP karena situs ini menggunakan HTTPS. Harap izinkan 'Insecure Content' di setelan browser (ikon gembok) atau gunakan koneksi VPN.");
-      } else if (e.name === 'AbortError') {
-        setLastError("Server tidak merespon (Timeout). Pastikan API di VPS Anda aktif.");
-      } else {
-        setLastError(`Gagal terhubung ke VPS: ${e.message || "Pastikan API aktif di port 5000 dan CORS diizinkan"}`);
-      }
+      console.error("Connection Error:", e);
+      setLastError(e.message === 'Failed to fetch' 
+        ? "Gagal terhubung ke proxy API. Pastikan VPS 178.128.106.33 aktif." 
+        : `Koneksi Error: ${e.message}`);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000); // Sync setiap 1 menit
+    const interval = setInterval(fetchData, 45000); // Sync setiap 45 detik
     return () => clearInterval(interval);
   }, []);
 
-  // CRUD Implementations using fetch...
   const addItem = async (newItem: Omit<Item, 'id'>) => {
     try {
       const res = await fetch(`${API_BASE}/items`, {
@@ -112,7 +105,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   };
 
   const addItems = async (newItems: (Omit<Item, 'id'> & { id?: string })[]) => {
-    // Basic bulk insert via individual calls (for compatibility)
     for (const item of newItems) { await addItem(item as Omit<Item, 'id'>); }
   };
 

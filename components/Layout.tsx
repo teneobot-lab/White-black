@@ -16,8 +16,7 @@ import {
   ClipboardList,
   Globe,
   AlertCircle,
-  RefreshCw,
-  ExternalLink
+  RefreshCw
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -27,7 +26,6 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { isDarkMode, toggleTheme, backendOnline, lastError, refreshData } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [showTroubleshoot, setShowTroubleshoot] = useState(false);
   const location = useLocation();
 
   const navItems = [
@@ -123,14 +121,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           </div>
           <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mt-1 truncate">
-            {backendOnline ? 'IP: 178.128.106.33' : 'Koneksi Bermasalah'}
+            {backendOnline ? 'Proxy: 178.128.106.33' : 'Koneksi Bermasalah'}
           </p>
           {!backendOnline && (
             <button 
-              onClick={() => setShowTroubleshoot(true)}
+              onClick={() => refreshData()}
               className="mt-2 text-[10px] font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 hover:underline"
             >
-              <AlertCircle className="w-3 h-3" /> Troubleshooting
+              <RefreshCw className="w-3 h-3" /> Reconnect
             </button>
           )}
         </div>
@@ -159,57 +157,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 flex transition-colors duration-200">
-      {/* Troubleshooting Dialog */}
-      {showTroubleshoot && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200">
-            <div className="p-6">
-              <div className="flex items-center gap-3 text-red-600 mb-4">
-                <AlertCircle className="w-6 h-6" />
-                <h3 className="text-lg font-bold">Diagnosa Koneksi</h3>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-lg">
-                  <p className="text-xs font-mono text-red-700 dark:text-red-400 leading-relaxed">
-                    Error: {lastError || "Tidak ada respon dari server."}
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Langkah Perbaikan (Wajib):</p>
-                  <ol className="list-decimal list-inside text-sm text-zinc-600 dark:text-zinc-400 space-y-2">
-                    <li>Klik <b>ikon Gembok</b> di URL bar browser Anda.</li>
-                    <li>Pilih <b>Site Settings</b> (Setelan Situs).</li>
-                    <li>Cari menu <b>Insecure Content</b> (Konten tidak aman).</li>
-                    <li>Ubah menjadi <b>Allow</b> (Izinkan).</li>
-                    <li>Refresh halaman ini.</li>
-                  </ol>
-                  <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-700 dark:text-blue-300">
-                    <p><b>Mengapa ini terjadi?</b> Karena server VPS Anda menggunakan HTTP sementara aplikasi ini berjalan di HTTPS. Browser menganggap ini tidak aman kecuali Anda mengizinkannya secara manual.</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 flex gap-3">
-                <button 
-                  onClick={() => setShowTroubleshoot(false)}
-                  className="flex-1 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl font-bold text-sm hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-                >
-                  Tutup
-                </button>
-                <button 
-                  onClick={() => { refreshData(); setShowTroubleshoot(false); }}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors"
-                >
-                  <RefreshCw className="w-4 h-4" /> Coba Lagi
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
@@ -240,7 +187,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
         </header>
 
-        {/* Error Banner (Always visible if connection fails) */}
+        {/* Error Banner */}
         {!backendOnline && lastError && (
           <div className="bg-red-600 text-white px-6 py-2 flex items-center justify-between text-xs font-medium animate-in slide-in-from-top duration-300">
             <div className="flex items-center gap-2">
@@ -248,10 +195,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <span>{lastError}</span>
             </div>
             <button 
-              onClick={() => setShowTroubleshoot(true)}
+              onClick={() => refreshData()}
               className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded border border-white/40 transition-colors flex items-center gap-1"
             >
-              Fix Connection <ExternalLink className="w-3 h-3" />
+              Retry <RefreshCw className="w-3 h-3" />
             </button>
           </div>
         )}
