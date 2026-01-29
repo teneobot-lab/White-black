@@ -1,355 +1,143 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../context/Store';
-import { Transaction, CartItem } from '../types';
-import { ArrowDownLeft, ArrowUpRight, FileText, Calendar, Filter, Download, Image, X, Edit2, Plus, Trash2, FileSpreadsheet, Search, CheckCircle, Package, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+// Added History as HistoryIcon to avoid naming conflict with the local History component
+import { Download, Search, Trash2, Calendar, ArrowDownLeft, ArrowUpRight, Filter, ChevronRight, History as HistoryIcon } from 'lucide-react';
 import { utils, writeFile } from 'xlsx';
 
 const History: React.FC = () => {
-  const { transactions, items, updateTransaction, deleteTransaction } = useAppStore();
-
-  // Search & Filter State
+  const { transactions, deleteTransaction } = useAppStore();
   const [filterText, setFilterText] = useState(''); 
-  const [filterItemText, setFilterItemText] = useState(''); 
   const [filterType, setFilterType] = useState<'All' | 'Inbound' | 'Outbound'>('All');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  
-  // UI State for Expanded Rows
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  // Autocomplete State
-  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
-  const filterDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Modal State
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [editingTrx, setEditingTrx] = useState<Transaction | null>(null);
-
-  // Edit Form State
-  const [editForm, setEditForm] = useState<{
-    supplierName?: string;
-    riNumber?: string;
-    poNumber?: string;
-    sjNumber?: string;
-    photos: string[];
-    items: CartItem[];
-  }>({ photos: [], items: [] });
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
-        setIsFilterDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const toggleRow = (id: string) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedRows(newExpanded);
-  };
-
-  const filterSuggestions = useMemo(() => {
-    const query = filterItemText.trim().toLowerCase();
-    if (!query) return [];
-    return items
-      .filter(item => 
-        (item.name || "").toLowerCase().includes(query) || 
-        (item.sku || "").toLowerCase().includes(query)
-      )
-      .slice(0, 8);
-  }, [items, filterItemText]);
-
-  const handleSelectFilterItem = (name: string) => {
-    setFilterItemText(name);
-    setIsFilterDropdownOpen(false);
-  };
-
-  // Advanced Filtering Logic - Sangat Defensif terhadap nilai NULL
   const filteredTransactions = useMemo(() => {
-    if (!transactions) return [];
-    
-    return transactions.filter(trx => {
-      // Pastikan semua properti yang diakses memiliki nilai default jika null
-      const trxId = (trx.transactionId || "").toLowerCase();
-      const supplier = (trx.supplierName || "").toLowerCase();
-      const ri = (trx.riNumber || "").toLowerCase();
-      const sj = (trx.sjNumber || "").toLowerCase();
+    return (transactions || []).filter(trx => {
       const search = filterText.toLowerCase();
-
-      // Filter Pencarian Umum
-      const matchesGeneralText = !filterText || (
-        trxId.includes(search) ||
-        supplier.includes(search) ||
-        ri.includes(search) ||
-        sj.includes(search)
-      );
-      
-      // Filter Nama Item di dalam transaksi
-      const trxItems = Array.isArray(trx.items) ? trx.items : [];
-      const itemSearch = filterItemText.toLowerCase();
-      const matchesItem = !filterItemText || trxItems.some(i => 
-        (i.itemName || "").toLowerCase().includes(itemSearch) ||
-        (i.sku || "").toLowerCase().includes(itemSearch)
-      );
-
-      // Filter Tipe
+      const matchesText = !filterText || (trx.transactionId?.toLowerCase().includes(search) || trx.supplierName?.toLowerCase().includes(search));
       const matchesType = filterType === 'All' || trx.type === filterType;
-      
-      // Filter Tanggal
-      let matchesDate = true;
-      if (startDate && endDate) {
-        try {
-          const tDate = new Date(trx.date);
-          const trxTime = tDate.getTime();
-          const start = new Date(startDate).getTime();
-          const end = new Date(endDate).getTime() + 86400000;
-          if (!isNaN(trxTime)) {
-            matchesDate = trxTime >= start && trxTime < end;
-          }
-        } catch (e) {
-          matchesDate = true; 
-        }
-      }
-
-      return matchesGeneralText && matchesItem && matchesType && matchesDate;
+      return matchesText && matchesType;
     });
-  }, [transactions, filterText, filterItemText, filterType, startDate, endDate]);
-
-  const handleResetFilters = () => {
-    setFilterText('');
-    setFilterItemText('');
-    setFilterType('All');
-    setStartDate('');
-    setEndDate('');
-  };
-
-  const handleOpenEdit = (trx: Transaction) => {
-    setEditingTrx(trx);
-    setEditForm({
-      supplierName: trx.supplierName || '',
-      riNumber: trx.riNumber || '',
-      poNumber: trx.poNumber || '',
-      sjNumber: trx.sjNumber || '',
-      photos: Array.isArray(trx.photos) ? trx.photos : [],
-      items: Array.isArray(trx.items) ? trx.items.map(i => ({...i})) : []
-    });
-  };
-
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingTrx) return;
-    const success = await updateTransaction({ ...editingTrx, ...editForm } as Transaction);
-    if (success) setEditingTrx(null);
-  };
+  }, [transactions, filterText, filterType]);
 
   const handleExport = () => {
-    if (filteredTransactions.length === 0) return;
+    const ws = utils.json_to_sheet(filteredTransactions);
     const wb = utils.book_new();
-    const exportData = filteredTransactions.flatMap(trx => 
-      (Array.isArray(trx.items) ? trx.items : []).map(item => ({
-        "ID": trx.transactionId,
-        "Type": trx.type,
-        "Date": new Date(trx.date).toLocaleString(),
-        "Ref": trx.supplierName || trx.sjNumber || '-',
-        "SKU": item.sku,
-        "Item": item.itemName,
-        "Qty": item.quantity
-      }))
-    );
-    const ws = utils.json_to_sheet(exportData);
     utils.book_append_sheet(wb, ws, "History");
-    writeFile(wb, `Jupiter_History_${new Date().toISOString().split('T')[0]}.xlsx`);
+    writeFile(wb, `Jupiter_Audit_Log_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   return (
-    <div className="space-y-6">
-      <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">History</h1>
-          <button 
-            onClick={handleExport}
-            disabled={filteredTransactions.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg text-sm font-bold hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors"
-          >
-            <Download className="w-4 h-4" /> Export Excel
-          </button>
+    <div className="space-y-8 pb-10">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+        <div>
+          <h1 className="text-2xl font-bold text-navy dark:text-white tracking-tight">Audit History</h1>
+          <p className="text-sm text-muted-gray font-medium">Detailed log of all historical stock movements.</p>
         </div>
-        
-        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <button 
+          onClick={handleExport} 
+          className="px-6 py-2.5 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 text-navy dark:text-white rounded-xl text-xs font-bold shadow-soft hover:bg-surface transition-all flex items-center gap-2 active:scale-95"
+        >
+          <Download className="w-4 h-4 text-primary" /> Export Data
+        </button>
+      </div>
+      
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-card-border dark:border-slate-800 shadow-soft">
+        <div className="flex flex-col md:flex-row gap-4">
+           <div className="relative flex-1 group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Search by Transaction ID or Client..." 
+                className="w-full bg-surface dark:bg-slate-950 border border-transparent focus:border-primary/20 focus:ring-4 focus:ring-primary/5 rounded-2xl py-3 pl-11 pr-4 text-sm outline-none transition-all"
+                value={filterText}
+                onChange={e => setFilterText(e.target.value)}
+              />
+           </div>
+           <div className="flex gap-2">
              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500" />
-                <input 
-                  type="text" 
-                  placeholder="Search ID, Supplier..."
-                  className="w-full pl-9 pr-3 py-2 border border-blue-100 dark:border-blue-900/30 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={filterText}
-                  onChange={(e) => setFilterText(e.target.value)}
-                />
+               <select 
+                  className="pl-5 pr-10 py-3 bg-surface dark:bg-slate-950 border border-transparent focus:border-primary/20 focus:ring-4 focus:ring-primary/5 rounded-2xl text-xs font-bold outline-none cursor-pointer appearance-none" 
+                  value={filterType} 
+                  onChange={e => setFilterType(e.target.value as any)}
+               >
+                  <option value="All">All Movements</option>
+                  <option value="Inbound">Inbound</option>
+                  <option value="Outbound">Outbound</option>
+               </select>
+               <Filter className="absolute right-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
              </div>
-
-             <div className="relative" ref={filterDropdownRef}>
-                <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500" />
-                <input 
-                  type="text" 
-                  placeholder="Filter Item..."
-                  className="w-full pl-9 pr-3 py-2 border border-blue-100 dark:border-blue-900/30 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={filterItemText}
-                  onChange={(e) => { setFilterItemText(e.target.value); setIsFilterDropdownOpen(true); }}
-                  onFocus={() => setIsFilterDropdownOpen(true)}
-                />
-                {isFilterDropdownOpen && filterSuggestions.length > 0 && (
-                  <div className="absolute z-50 w-full mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg">
-                    {filterSuggestions.map(item => (
-                      <div key={item.id} className="px-4 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer text-sm" onClick={() => handleSelectFilterItem(item.name)}>
-                         <p className="font-medium text-zinc-900 dark:text-zinc-100">{item.name}</p>
-                         <p className="text-[10px] text-zinc-400 font-mono">{item.sku}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-             </div>
-
-             <select 
-                className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm"
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as any)}
-              >
-                <option value="All">All Types</option>
-                <option value="Inbound">Inbound</option>
-                <option value="Outbound">Outbound</option>
-              </select>
-              
-             <div className="flex items-center gap-2">
-               <input type="date" className="w-full px-2 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-xs" value={startDate} onChange={e => setStartDate(e.target.value)} />
-               <span className="text-zinc-400">-</span>
-               <input type="date" className="w-full px-2 py-2 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg text-xs" value={endDate} onChange={e => setEndDate(e.target.value)} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden flex flex-col max-h-[calc(100vh-250px)] transition-colors">
-        <div className="overflow-auto scroll-smooth">
-          <table className="w-full text-sm text-left relative">
-            <thead className="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400 font-medium border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 shadow-sm">
-              <tr>
-                <th className="px-6 py-3">Transaction ID</th>
-                <th className="px-6 py-3">Type</th>
-                <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Reference</th>
-                <th className="px-6 py-3">Details</th>
-                <th className="px-6 py-3 text-center">Photos</th>
-                <th className="px-6 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {filteredTransactions.map((trx) => {
-                const isExpanded = expandedRows.has(trx.id);
-                const trxItems = Array.isArray(trx.items) ? trx.items : [];
-                const visibleItems = isExpanded ? trxItems : trxItems.slice(0, 3);
-                
-                // Parsing tanggal aman
-                const tDate = new Date(trx.date);
-                const displayDate = isNaN(tDate.getTime()) ? '-' : tDate.toLocaleDateString();
-                const displayTime = isNaN(tDate.getTime()) ? '' : tDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-                return (
-                  <tr key={trx.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors align-top">
-                    <td className="px-6 py-4 font-mono text-zinc-900 dark:text-zinc-100 font-bold">{trx.transactionId}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                        trx.type === 'Inbound' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
-                      }`}>
-                        {trx.type === 'Inbound' ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                        {trx.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-zinc-400" />
-                        <div>
-                          <div className="whitespace-nowrap font-medium">{displayDate}</div>
-                          <div className="text-[10px] opacity-50 font-bold uppercase">{displayTime}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">
-                      <div className="flex flex-col">
-                         <span className="text-zinc-900 dark:text-zinc-200 font-bold truncate max-w-[150px] uppercase tracking-tighter">{trx.supplierName || trx.sjNumber || '-'}</span>
-                         <span className="text-[10px] text-zinc-500 mt-0.5 font-mono">{trx.riNumber || trx.poNumber || ''}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400 min-w-[200px]">
-                       <div className="flex flex-col gap-1">
-                         {visibleItems.map((item, idx) => (
-                           <div key={idx} className="text-[11px] flex items-center gap-1">
-                             <span className="shrink-0 font-black text-rose-500">{item.quantity}x</span>
-                             <span className="truncate font-medium">{item.itemName}</span>
-                           </div>
-                         ))}
-                         {trxItems.length > 3 && (
-                           <button onClick={() => toggleRow(trx.id)} className="text-[10px] font-black text-blue-500 mt-1 flex items-center gap-1 hover:underline uppercase">
-                             {isExpanded ? <><ChevronUp className="w-3 h-3" /> Show Less</> : <><ChevronDown className="w-3 h-3" /> +{trxItems.length - 3} More Items</>}
-                           </button>
-                         )}
-                         {trxItems.length === 0 && <span className="text-[10px] text-zinc-300 italic">No item data</span>}
-                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {(Array.isArray(trx.photos) && trx.photos.length > 0) ? (
-                        <div className="flex justify-center -space-x-2">
-                           {trx.photos.slice(0, 2).map((photo, i) => (
-                             <div key={i} onClick={() => setPreviewImage(photo)} className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 overflow-hidden cursor-pointer bg-zinc-100 hover:scale-110 transition-transform">
-                               <img src={photo} className="w-full h-full object-cover" onError={(e) => (e.currentTarget.src = 'https://placehold.co/100x100?text=ERR')} />
-                             </div>
-                           ))}
-                           {trx.photos.length > 2 && <div className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[9px] font-black">+{trx.photos.length - 2}</div>}
-                        </div>
-                      ) : <span className="text-[10px] text-zinc-300">-</span>}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-1">
-                        <button onClick={() => handleOpenEdit(trx)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors"><Edit2 className="w-4 h-4 text-blue-500" /></button>
-                        <button onClick={() => { if(confirm('Delete transaction?')) deleteTransaction(trx.id); }} className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-zinc-400 hover:text-red-600 rounded-full transition-colors"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {filteredTransactions.length === 0 && (
-            <div className="p-12 text-center text-zinc-400 flex flex-col items-center">
-              <FileText className="w-16 h-16 mb-4 opacity-5" />
-              <p className="font-bold text-lg text-zinc-300 dark:text-zinc-600">DATABASE HISTORY EMPTY</p>
-              <p className="text-xs max-w-xs mt-2">Tidak ditemukan transaksi di database lokal atau filter terlalu ketat.</p>
-              {(filterText || filterItemText || startDate) && (
-                <button onClick={handleResetFilters} className="mt-6 flex items-center gap-2 text-blue-500 font-black text-xs uppercase tracking-widest bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-full border border-blue-100 dark:border-blue-900/50">
-                  <RotateCcw className="w-3 h-3" /> Reset All Filters
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {previewImage && (
-        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setPreviewImage(null)}>
-           <div className="relative max-w-4xl w-full">
-             <img src={previewImage} className="w-full h-auto max-h-[85vh] object-contain rounded-lg shadow-2xl" />
-             <button onClick={() => setPreviewImage(null)} className="absolute -top-12 right-0 text-white p-2 bg-white/10 rounded-full hover:bg-white/20"><X className="w-6 h-6" /></button>
            </div>
         </div>
-      )}
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-surface/50 dark:bg-slate-950 text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-card-border dark:border-slate-800">
+              <tr>
+                <th className="px-8 py-5">TXN Identifier</th>
+                <th className="px-6 py-5">Type</th>
+                <th className="px-6 py-5">Timestamp</th>
+                <th className="px-6 py-5">Client Ref</th>
+                <th className="px-6 py-5 text-right">Items</th>
+                <th className="px-8 py-5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+              {filteredTransactions.map((trx) => (
+                <tr key={trx.id} className="hover:bg-surface/50 dark:hover:bg-slate-800/30 transition-colors group">
+                  <td className="px-8 py-5">
+                    <span className="font-mono text-xs font-black text-primary uppercase">{trx.transactionId}</span>
+                  </td>
+                  <td className="px-6 py-5">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                      trx.type === 'Inbound' 
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20' 
+                        : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20'
+                    }`}>
+                      {trx.type === 'Inbound' ? <ArrowDownLeft size={10} /> : <ArrowUpRight size={10} />}
+                      {trx.type}
+                    </span>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-navy dark:text-slate-200">{new Date(trx.date).toLocaleDateString()}</span>
+                      <span className="text-[10px] text-muted-gray font-medium uppercase">{new Date(trx.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <span className="text-xs font-bold text-navy dark:text-slate-300 truncate max-w-[150px] inline-block uppercase tracking-tight">
+                      {trx.supplierName || trx.sjNumber || 'Internal Ref'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-5 text-right font-black text-navy dark:text-white">
+                    {trx.totalItems}
+                  </td>
+                  <td className="px-8 py-5 text-right">
+                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <button 
+                        onClick={() => { if(confirm('Delete record?')) deleteTransaction(trx.id); }} 
+                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredTransactions.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-20 text-center text-muted-gray flex flex-col items-center opacity-30">
+                    {/* Changed from History to HistoryIcon to fix recursive reference and missing props error */}
+                    <HistoryIcon size={48} className="mb-4" />
+                    <p className="text-xs font-black uppercase tracking-widest">No matching history</p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };

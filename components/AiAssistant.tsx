@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { generateAIResponse } from '../services/geminiService';
-import { Send, Bot, User, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Zap } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -13,7 +13,7 @@ interface Message {
 const AiAssistant: React.FC = () => {
   const { items, transactions } = useAppStore();
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'Hello! I am Jupiter, your warehouse assistant. How can I help you today?', timestamp: new Date() }
+    { role: 'assistant', content: 'Hello! I am Jupiter, your warehouse co-pilot. I can analyze stock levels, predict shortages, and audit history. How can I assist you today?', timestamp: new Date() }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -29,102 +29,85 @@ const AiAssistant: React.FC = () => {
 
   const handleSend = async () => {
     if (!input.trim()) return;
-
     const userMsg: Message = { role: 'user', content: input, timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
-
     const aiResponseText = await generateAIResponse(input, { items, transactions });
-
-    const aiMsg: Message = { 
-      role: 'assistant', 
-      content: aiResponseText, 
-      timestamp: new Date() 
-    };
-
+    const aiMsg: Message = { role: 'assistant', content: aiResponseText, timestamp: new Date() };
     setMessages(prev => [...prev, aiMsg]);
     setIsLoading(false);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-yellow-500" />
-          AI Assistant
+    <div className="h-[calc(100vh-10rem)] flex flex-col space-y-6">
+      <div className="flex flex-col">
+        <h1 className="text-2xl font-bold text-navy dark:text-white flex items-center gap-3">
+          <div className="p-2 bg-gradient-to-br from-primary to-secondary rounded-xl text-white shadow-glow-primary">
+            <Zap className="w-5 h-5" />
+          </div>
+          Intelligence Desk
         </h1>
-        <p className="text-zinc-500 dark:text-zinc-400">Ask questions about your inventory, stock levels, or history.</p>
+        <p className="text-sm text-muted-gray font-medium mt-1">Smart inventory insights powered by Gemini AI.</p>
       </div>
 
-      <div className="flex-1 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col overflow-hidden transition-colors">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50/50 dark:bg-black/20">
+      <div className="flex-1 bg-white dark:bg-slate-900 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft flex flex-col overflow-hidden relative transition-all">
+        <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-surface/30 dark:bg-slate-950/30 custom-scrollbar">
           {messages.map((msg, idx) => (
-            <div 
-              key={idx} 
-              className={`flex items-start gap-3 max-w-[80%] ${
-                msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''
-              }`}
-            >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                msg.role === 'user' ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900' : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-yellow-600'
+            <div key={idx} className={`flex items-start gap-4 max-w-[85%] ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-soft transition-all ${
+                msg.role === 'user' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-primary border border-card-border dark:border-slate-700'
               }`}>
-                {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
               </div>
-              <div className={`p-4 rounded-2xl text-sm leading-relaxed ${
+              <div className={`p-5 rounded-3xl text-sm leading-relaxed relative ${
                 msg.role === 'user' 
-                  ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-tr-sm' 
-                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-tl-sm shadow-sm'
+                  ? 'bg-navy text-white rounded-tr-sm shadow-soft-lg' 
+                  : 'bg-white dark:bg-slate-800 text-navy dark:text-slate-200 border border-card-border dark:border-slate-700 rounded-tl-sm shadow-soft'
               }`}>
                 {msg.content}
-                <div className={`text-[10px] mt-2 opacity-50 ${msg.role === 'user' ? 'text-zinc-300 dark:text-zinc-600' : 'text-zinc-400'}`}>
+                <div className={`text-[9px] mt-2 font-black uppercase tracking-widest opacity-40 ${msg.role === 'user' ? 'text-white/60' : 'text-navy/40'}`}>
                   {msg.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                 </div>
               </div>
             </div>
           ))}
           {isLoading && (
-             <div className="flex items-start gap-3 max-w-[80%]">
-               <div className="w-8 h-8 rounded-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-yellow-600 flex items-center justify-center">
-                 <Bot className="w-4 h-4 animate-pulse" />
+            <div className="flex items-center gap-4 animate-pulse">
+               <div className="w-10 h-10 rounded-2xl bg-white dark:bg-slate-800 flex items-center justify-center border border-card-border">
+                 <Bot size={20} className="text-primary animate-bounce" />
                </div>
-               <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm">
-                 <div className="flex gap-1">
-                   <div className="w-2 h-2 bg-zinc-300 dark:bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                   <div className="w-2 h-2 bg-zinc-300 dark:bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                   <div className="w-2 h-2 bg-zinc-300 dark:bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+               <div className="bg-white dark:bg-slate-800 px-6 py-4 rounded-3xl rounded-tl-sm border border-card-border shadow-soft">
+                 <div className="flex gap-1.5">
+                   <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                   <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
+                   <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
                  </div>
                </div>
-             </div>
+            </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800">
-          <div className="relative">
-            <textarea
+        <div className="p-6 bg-white dark:bg-slate-900 border-t border-card-border dark:border-slate-800">
+          <div className="relative flex items-center">
+            <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               disabled={isLoading}
-              placeholder="Tanya sesuatu tentang gudang..."
-              className="w-full pl-4 pr-12 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:bg-white dark:focus:bg-zinc-900 resize-none h-[60px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-600 transition-colors disabled:opacity-50"
+              placeholder="Ask me anything about your stock status..."
+              className="w-full pl-6 pr-16 py-4 bg-surface dark:bg-slate-950 border border-transparent rounded-[24px] outline-none focus:ring-4 focus:ring-primary/5 focus:bg-white transition-all text-sm font-medium shadow-inner"
             />
             <button 
               onClick={handleSend}
               disabled={!input.trim() || isLoading}
-              className="absolute right-2 top-2 p-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="absolute right-2 p-3 bg-primary text-white rounded-2xl hover:bg-blue-600 disabled:opacity-30 transition-all shadow-glow-primary active:scale-95"
             >
-              <Send className="w-4 h-4" />
+              <Send size={20} />
             </button>
           </div>
+          <p className="text-[10px] text-center mt-3 font-bold text-muted-gray uppercase tracking-widest">Powered by Jupiter AI Infrastructure</p>
         </div>
       </div>
     </div>

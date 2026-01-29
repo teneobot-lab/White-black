@@ -10,208 +10,153 @@ import {
   AlertTriangle, 
   DollarSign, 
   ArrowDownLeft, 
-  ArrowUpRight 
+  ArrowUpRight,
+  Activity,
+  ArrowRight,
+  Server,
+  RefreshCw
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
-  const { items, transactions } = useAppStore();
+  const { items, transactions, backendOnline, lastError, apiUrl } = useAppStore();
 
-  // Calculations
   const totalValue = items.reduce((sum, item) => sum + (item.price * item.currentStock), 0);
   const totalUnits = items.reduce((sum, item) => sum + item.currentStock, 0);
   const lowStockItems = items.filter(item => item.currentStock <= item.minLevel);
   
-  // Category Data for Pie Chart
   const categoryData = Object.entries(items.reduce((acc, item) => {
     acc[item.category] = (acc[item.category] || 0) + 1;
     return acc;
   }, {} as Record<string, number>)).map(([name, value]) => ({ name, value }));
 
-  // Top Products for Bar Chart
   const topProducts = items
     .sort((a, b) => b.currentStock - a.currentStock)
     .slice(0, 5)
     .map(item => ({ name: item.name, stock: item.currentStock }));
 
-  const COLORS = ['#18181b', '#52525b', '#a1a1aa', '#e4e4e7', '#f4f4f5'];
-  const DARK_COLORS = ['#fafafa', '#d4d4d8', '#a1a1aa', '#52525b', '#27272a'];
+  const CHART_COLORS = ['#4F8CFF', '#6A5CFF', '#3DDCFF', '#8B7CFF', '#E5EAF1'];
 
-  const recentTransactions = transactions.slice(0, 5);
-
-  const KPICard = ({ title, value, sub, icon: Icon, alert }: any) => (
-    <div className={`bg-white dark:bg-zinc-900 p-6 rounded-xl border ${alert ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-900/10' : 'border-zinc-200 dark:border-zinc-800'} shadow-sm transition-colors`}>
-      <div className="flex justify-between items-start">
-        <div>
-          <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{title}</p>
-          <h3 className={`text-2xl font-bold mt-2 ${alert ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'}`}>{value}</h3>
-        </div>
-        <div className={`p-2 rounded-lg ${alert ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'}`}>
+  const KPICard = ({ title, value, sub, icon: Icon, colorClass, highlight }: any) => (
+    <div className={`bg-white dark:bg-slate-900 p-6 rounded-2xl border border-card-border dark:border-slate-800 shadow-soft hover-lift group ${highlight ? 'ring-2 ring-primary ring-offset-2 dark:ring-offset-slate-950' : ''}`}>
+      <div className="flex justify-between items-start mb-4">
+        <div className={`p-2.5 rounded-xl ${colorClass} shadow-sm group-hover:scale-110 transition-transform duration-300`}>
           <Icon className="w-5 h-5" />
         </div>
+        <div className="flex items-center gap-1 text-[10px] font-bold text-green-500 uppercase">
+          <TrendingUp className="w-3 h-3" /> 2.5%
+        </div>
       </div>
-      {sub && <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">{sub}</p>}
+      <div>
+        <p className="text-[10px] font-bold text-muted-gray uppercase tracking-widest">{title}</p>
+        <h3 className="text-2xl font-bold mt-1 text-navy dark:text-white leading-none">{value}</h3>
+        {sub && <p className="text-xs text-muted-gray mt-2 font-medium">{sub}</p>}
+      </div>
     </div>
   );
 
   return (
-    <div className="space-y-6">
-      {/* Sticky Header Section */}
-      <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
-            <p className="text-zinc-500 dark:text-zinc-400">Welcome back, here's what's happening today.</p>
-          </div>
-          <div className="text-sm text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+    <div className="space-y-8 pb-10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-navy dark:text-white tracking-tight">Overview</h1>
+          <p className="text-sm text-muted-gray font-medium">Monitoring operasional di VPS 159.223.57.240.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className={`px-4 py-2 rounded-xl text-xs font-bold border shadow-soft flex items-center gap-2 ${backendOnline ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+            <div className={`w-2 h-2 rounded-full ${backendOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            {backendOnline ? 'Cloud Sync Active' : 'Backend Offline'}
           </div>
         </div>
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard 
-          title="Total Inventory Value" 
+          title="Total Valuation" 
           value={`Rp ${totalValue.toLocaleString('id-ID')}`} 
           icon={DollarSign}
+          colorClass="bg-blue-50 text-primary dark:bg-blue-900/30"
+          highlight
         />
         <KPICard 
-          title="Total Units" 
-          value={totalUnits.toLocaleString()} 
-          sub={`${items.length} Unique SKUs`}
-          icon={Package} 
+          title="System Health" 
+          value={backendOnline ? "Excelent" : "Error"} 
+          sub={backendOnline ? "Connected to 159.223.57.240" : "Server unreachable"}
+          icon={Server} 
+          colorClass={backendOnline ? "bg-indigo-50 text-secondary" : "bg-red-50 text-red-500"}
         />
         <KPICard 
-          title="Low Stock Items" 
+          title="Critical Stock" 
           value={lowStockItems.length} 
           icon={AlertTriangle}
-          alert={lowStockItems.length > 0}
-          sub={lowStockItems.length > 0 ? "Action required" : "Healthy levels"}
+          colorClass={lowStockItems.length > 0 ? "bg-red-50 text-red-500 dark:bg-red-900/30" : "bg-emerald-50 text-emerald-500 dark:bg-emerald-900/30"}
+          sub={lowStockItems.length > 0 ? "Replenishment needed" : "Healthy levels"}
         />
         <KPICard 
-          title="Categories" 
-          value={categoryData.length} 
-          icon={TrendingUp} 
+          title="Live Sync" 
+          value="Real-time" 
+          icon={RefreshCw} 
+          colorClass="bg-cyan-50 text-accent dark:bg-cyan-900/30"
+          sub="Sync every 30s"
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Charts Column */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-white mb-6">Stock Distribution</h3>
-            <div className="h-64">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-card-border dark:border-slate-800 shadow-soft">
+            <div className="flex justify-between items-center mb-8">
+               <h3 className="text-lg font-bold text-navy dark:text-white">Inventory Allocation</h3>
+               <button className="text-xs font-bold text-primary hover:underline flex items-center gap-1">View Full Report <ArrowRight size={14} /></button>
+            </div>
+            <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topProducts}>
-                  <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} tick={{fill: '#71717a'}} />
-                  <YAxis fontSize={12} tickLine={false} axisLine={false} tick={{fill: '#71717a'}} />
+                  <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} tick={{fill: '#94A3B8'}} dy={10} />
+                  <YAxis fontSize={11} tickLine={false} axisLine={false} tick={{fill: '#94A3B8'}} />
                   <Tooltip 
-                    cursor={{fill: 'transparent'}}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', backgroundColor: '#18181b', color: '#fff' }}
-                    itemStyle={{ color: '#fff' }}
+                    cursor={{fill: '#F1F5F9'}}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05)', backgroundColor: '#fff', padding: '12px' }}
+                    itemStyle={{ color: '#1F2937', fontWeight: 700 }}
                   />
-                  <Bar dataKey="stock" fill="#71717a" radius={[4, 4, 0, 0]} barSize={40} className="dark:fill-zinc-400" />
+                  <Bar dataKey="stock" fill="#4F8CFF" radius={[8, 8, 0, 0]} barSize={40} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
           
-          {/* Low Stock Alert List with Scroll Support */}
-          {lowStockItems.length > 0 && (
-            <div className="bg-white dark:bg-zinc-900 rounded-xl border border-red-100 dark:border-red-900/30 shadow-sm overflow-hidden transition-colors flex flex-col">
-              <div className="p-4 bg-red-50 dark:bg-red-900/10 border-b border-red-100 dark:border-red-900/30 flex items-center gap-2 sticky top-0 z-10">
-                <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                <h3 className="font-semibold text-red-900 dark:text-red-300">Low Stock Alerts</h3>
-                <span className="ml-auto bg-red-200 dark:bg-red-900/50 text-red-800 dark:text-red-100 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                  {lowStockItems.length} ITEMS
-                </span>
-              </div>
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800 overflow-y-auto max-h-[400px] custom-scrollbar">
-                {lowStockItems.map(item => (
-                  <div key={item.id} className="p-4 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                    <div>
-                      <p className="font-medium text-zinc-900 dark:text-zinc-100">{item.name}</p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">SKU: {item.sku} • Min: {item.minLevel}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200">
-                        {item.currentStock} {item.unit}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {lastError && (
+            <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex items-center gap-3">
+              <AlertTriangle className="text-red-500" />
+              <p className="text-xs font-bold text-red-700">Terjadi kesalahan sinkronisasi: {lastError}</p>
             </div>
           )}
         </div>
 
-        {/* Right Column */}
-        <div className="space-y-6">
-          {/* Pie Chart */}
-          <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-white mb-4">Categories</h3>
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} className="dark:opacity-80" />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: 'none', backgroundColor: '#18181b', color: '#fff' }}
-                    itemStyle={{ color: '#fff' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+        <div className="space-y-8">
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-card-border dark:border-slate-800 shadow-soft overflow-hidden">
+            <div className="p-6 border-b border-card-border dark:border-slate-800 flex items-center justify-between">
+              <h3 className="font-bold text-navy dark:text-white">Recent VPS Logs</h3>
+              <Activity size={16} className="text-primary" />
             </div>
-            <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                {categoryData.map((entry, index) => (
-                  <div key={entry.name} className="flex items-center text-xs text-zinc-500 dark:text-zinc-400">
-                    <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                    {entry.name}
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          {/* Recent Activity */}
-          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
-            <div className="p-4 border-b border-zinc-100 dark:border-zinc-800">
-              <h3 className="font-semibold text-zinc-900 dark:text-white">Recent Activity</h3>
-            </div>
-            <div className="p-0">
-              {recentTransactions.length === 0 ? (
-                <div className="p-8 text-center text-zinc-400 text-sm">No activity yet.</div>
+            <div>
+              {transactions.length === 0 ? (
+                <div className="p-12 text-center text-muted-gray text-xs font-bold uppercase tracking-widest opacity-40">No records found on VPS</div>
               ) : (
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {recentTransactions.map((trx) => (
-                    <div key={trx.id} className="p-4 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                      <div className={`p-2 rounded-lg mt-0.5 ${
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {transactions.slice(0, 5).map((trx) => (
+                    <div key={trx.id} className="p-4 flex items-start gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
+                      <div className={`p-2 rounded-xl transition-all duration-300 group-hover:scale-110 shadow-sm ${
                         trx.type === 'Inbound' 
-                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' 
-                          : 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400'
+                          ? 'bg-blue-50 dark:bg-blue-900/30 text-primary' 
+                          : 'bg-indigo-50 dark:bg-indigo-900/30 text-secondary'
                       }`}>
-                        {trx.type === 'Inbound' ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                        {trx.type === 'Inbound' ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                          {trx.type} &middot; {trx.totalItems} Items
-                        </p>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        <p className="text-xs font-bold text-navy dark:text-white truncate uppercase tracking-tight">
                           {trx.transactionId}
                         </p>
-                        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                          {new Date(trx.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <p className="text-[10px] text-muted-gray font-bold uppercase mt-0.5">
+                          {trx.totalItems} Items &bull; {trx.type}
                         </p>
                       </div>
                     </div>

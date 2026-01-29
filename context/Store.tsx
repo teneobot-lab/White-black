@@ -40,6 +40,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('jupiter_theme') === 'dark');
   const [backendOnline, setBackendOnline] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  // Default to proxy path which points to 159.223.57.240 via vercel.json
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "/api");
 
   const toggleTheme = () => {
@@ -57,7 +58,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   }, [isDarkMode]);
 
   const updateApiUrl = (newUrl: string) => {
-    // Normalisasi: Hapus trailing slash jika ada
     const normalized = newUrl.endsWith('/') ? newUrl.slice(0, -1) : newUrl;
     localStorage.setItem('jupiter_api_url', normalized);
     setApiUrl(normalized);
@@ -66,11 +66,12 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
     try {
       const base = url.endsWith('/') ? url.slice(0, -1) : url;
+      // Ensure we hit the sync endpoint for a fast ping test
       const res = await fetch(`${base}/sync`, { method: 'GET' });
-      if (res.ok) return { success: true, message: "Koneksi Berhasil!" };
+      if (res.ok) return { success: true, message: "Koneksi ke VPS Berhasil!" };
       return { success: false, message: `Server merespon error: ${res.status}` };
     } catch (e: any) {
-      return { success: false, message: `Gagal: ${e.message}` };
+      return { success: false, message: `Gagal terhubung ke VPS: ${e.message}` };
     }
   };
 
@@ -104,12 +105,8 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const fetchData = async () => {
     try {
       const base = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-      const targetUrl = `${base}/sync`;
-      
-      const res = await fetch(targetUrl);
-      if (!res.ok) {
-        throw new Error(`HTTP Error: ${res.status} at ${targetUrl}`);
-      }
+      const res = await fetch(`${base}/sync`);
+      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
       
       const data = await res.json();
 
@@ -129,7 +126,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setBackendOnline(true);
       setLastError(null);
     } catch (e: any) {
-      console.warn("Fetch Error Details:", e.message);
       setBackendOnline(false);
       setLastError(e.message);
     }
@@ -137,7 +133,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000);
+    const interval = setInterval(fetchData, 30000); // More frequent sync for new VPS
     return () => clearInterval(interval);
   }, [apiUrl]);
 

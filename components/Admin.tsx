@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
-import { User, Shield, Bell, Moon, Server, Link, Save, RotateCcw, CheckCircle2, XCircle, Activity, Info } from 'lucide-react';
+import { User, Shield, Bell, Server, Link, Save, RotateCcw, CheckCircle2, XCircle, Activity, Info, Settings, Lock } from 'lucide-react';
 import { useAppStore } from '../context/Store';
 
 const Admin: React.FC = () => {
-  const { apiUrl, updateApiUrl, backendOnline, lastError, refreshData, testConnection } = useAppStore();
+  const { apiUrl, updateApiUrl, backendOnline, testConnection, refreshData } = useAppStore();
   const [tempUrl, setTempUrl] = useState(apiUrl);
   const [isSaving, setIsSaving] = useState(false);
   const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
@@ -26,164 +26,111 @@ const Admin: React.FC = () => {
     }, 1000);
   };
 
-  const handleReset = () => {
-    const defaultUrl = "/api";
-    setTempUrl(defaultUrl);
-    updateApiUrl(defaultUrl);
-  };
-
-  const is502 = lastError?.includes("502") || testResult?.message.includes("502");
-
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-10">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Admin Settings</h1>
-          <p className="text-zinc-500 dark:text-zinc-400">Manage users and system preferences.</p>
+          <h1 className="text-2xl font-bold text-navy dark:text-white tracking-tight">System Configuration</h1>
+          <p className="text-sm text-muted-gray font-medium mt-1">Mengatur node koneksi ke VPS 159.223.57.240.</p>
         </div>
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${backendOnline ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
-          {backendOnline ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-          {backendOnline ? 'Connected' : 'Disconnected'}
+        <div className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border flex items-center gap-2 ${
+          backendOnline 
+            ? 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
+            : 'bg-red-50 text-red-600 border-red-100'
+        }`}>
+          {backendOnline ? <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" /> : <XCircle size={14} />}
+          {backendOnline ? 'Cloud Active' : 'Offline Mode'}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Server Connectivity */}
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border-2 border-blue-100 dark:border-blue-900/20 shadow-sm transition-colors lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500 text-white rounded-lg shadow-blue-200 dark:shadow-none shadow-lg">
-                <Server className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-zinc-900 dark:text-white">Server Configuration</h3>
-                <p className="text-xs text-zinc-500">Configure and test your backend API endpoint.</p>
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft lg:col-span-2">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="p-3 bg-primary/10 text-primary rounded-2xl border border-primary/10">
+              <Server size={24} />
+            </div>
+            <div>
+              <h3 className="font-bold text-navy dark:text-white text-lg leading-tight">Backend Infrastructure</h3>
+              <p className="text-xs text-muted-gray font-medium uppercase tracking-wider">Current Node IP: 159.223.57.240</p>
             </div>
           </div>
           
-          <div className="space-y-4">
-            <div className="flex flex-col space-y-2">
-              <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase">API Base URL</label>
-              <div className="flex flex-col md:flex-row gap-2">
-                <div className="relative flex-1">
-                  <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+          <div className="space-y-6 max-w-4xl">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-muted-gray uppercase tracking-widest ml-1">API Base URL (Proxy recommended)</label>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1 group">
+                  <Link className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" />
                   <input 
                     type="text" 
                     value={tempUrl}
                     onChange={(e) => setTempUrl(e.target.value)}
-                    placeholder="/api or http://your-vps-ip:5000/api"
-                    className="w-full pl-10 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white transition-all"
+                    placeholder="e.g., /api"
+                    className="w-full pl-11 pr-4 py-3.5 bg-surface dark:bg-slate-950 border border-transparent focus:border-primary/20 focus:ring-4 focus:ring-primary/5 rounded-[20px] text-sm outline-none transition-all font-mono"
                   />
                 </div>
                 <div className="flex gap-2">
-                  <button 
+                   <button 
                     onClick={handleTestConnection}
                     disabled={isSaving}
-                    className="px-4 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all disabled:opacity-50"
+                    className="px-6 py-3.5 bg-white dark:bg-slate-800 text-navy dark:text-white border border-card-border dark:border-slate-800 rounded-[20px] text-xs font-black hover:bg-surface transition-all disabled:opacity-50 flex items-center gap-2 shadow-soft"
                   >
-                    <Activity className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
-                    Test Ping
+                    <Activity className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} /> TEST VPS
                   </button>
                   <button 
                     onClick={handleSaveUrl}
                     disabled={isSaving}
-                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50"
+                    className="px-8 py-3.5 bg-primary text-white rounded-[20px] text-xs font-black hover:bg-blue-600 transition-all shadow-glow-primary flex items-center gap-2"
                   >
-                    {isSaving ? 'Connecting...' : 'Save & Connect'}
-                    {!isSaving && <Save className="w-4 h-4" />}
+                    <Save size={16} /> DEPLOY CONFIG
                   </button>
                 </div>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <p className="text-[10px] text-zinc-400 italic">
-                  * Gunakan <strong>/api</strong> untuk menggunakan Vercel Proxy (Direkomendasikan)
-                </p>
-                <button 
-                  onClick={handleReset}
-                  className="text-[10px] font-bold text-zinc-500 hover:text-blue-600 flex items-center gap-1 transition-colors"
-                >
-                  <RotateCcw className="w-3 h-3" /> Reset to Default
-                </button>
               </div>
             </div>
 
             {testResult && (
-              <div className={`p-4 rounded-xl border flex items-start gap-3 animate-in slide-in-from-top-2 duration-300 ${testResult.success ? 'bg-green-50 dark:bg-green-900/10 border-green-100 dark:border-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30 text-red-700 dark:text-red-400'}`}>
-                {testResult.success ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <XCircle className="w-5 h-5 shrink-0" />}
-                <div className="text-xs">
-                  <p className="font-bold">{testResult.success ? 'Koneksi Berhasil' : 'Koneksi Gagal'}</p>
-                  <p className="mt-1">{testResult.message}</p>
-                </div>
+              <div className={`p-4 rounded-2xl border flex items-start gap-4 animate-in slide-in-from-top-2 duration-300 ${
+                testResult.success 
+                  ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
+                  : 'bg-red-50 border-red-100 text-red-700'
+              }`}>
+                {testResult.success ? <CheckCircle2 size={20} className="shrink-0" /> : <XCircle size={20} className="shrink-0" />}
+                <div className="text-xs font-bold leading-relaxed">{testResult.message}</div>
               </div>
             )}
-
-            {is502 && (
-              <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30 rounded-xl flex items-start gap-3">
-                <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                <div className="text-xs text-amber-800 dark:text-amber-400">
-                  <p className="font-bold uppercase tracking-tight">Troubleshooting Error 502/Bad Gateway:</p>
-                  <ul className="mt-2 space-y-1 list-disc list-inside opacity-90">
-                    <li>Pastikan Anda sudah menjalankan <code className="bg-amber-100 dark:bg-zinc-800 px-1 rounded">node server.js</code> di VPS.</li>
-                    <li>Jika menggunakan PM2, jalankan <code className="bg-amber-100 dark:bg-zinc-800 px-1 rounded">pm2 status</code> untuk cek apakah backend crash.</li>
-                    <li>Cek apakah database MySQL Anda sudah aktif.</li>
-                    <li>Pastikan port 5000 sudah dibuka di firewall: <code className="bg-amber-100 dark:bg-zinc-800 px-1 rounded">ufw allow 5000</code>.</li>
-                  </ul>
-                </div>
-              </div>
-            )}
+            
+            <div className="pt-6 border-t border-card-border dark:border-slate-800 flex justify-between items-center">
+               <div className="flex items-center gap-2 text-[10px] text-muted-gray font-bold italic">
+                 <Info size={12} /> Gunakan <strong>/api</strong> untuk menggunakan proxy Vercel ke VPS Anda.
+               </div>
+               <button onClick={() => setTempUrl("/api")} className="text-[10px] font-black text-primary hover:underline flex items-center gap-1 uppercase tracking-widest">
+                 <RotateCcw size={12} /> Reset to Defaults
+               </button>
+            </div>
           </div>
         </div>
 
-        {/* User Management */}
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded-lg">
-              <User className="w-5 h-5" />
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="p-3 bg-secondary/10 text-secondary rounded-2xl">
+              <Shield size={24} />
             </div>
-            <h3 className="font-semibold text-zinc-900 dark:text-white">User Management</h3>
+            <div>
+              <h3 className="font-bold text-navy dark:text-white text-lg leading-tight">Security & Audit</h3>
+              <p className="text-xs text-muted-gray font-medium uppercase tracking-wider">VPS Access Logging</p>
+            </div>
           </div>
           <div className="space-y-4">
-             {[1, 2].map((i) => (
-               <div key={i} className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg">
-                 <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-500 dark:text-zinc-300">
-                     {i === 1 ? 'JD' : 'AS'}
-                   </div>
-                   <div>
-                     <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{i === 1 ? 'John Doe' : 'Alice Smith'}</p>
-                     <p className="text-xs text-zinc-500 dark:text-zinc-400">{i === 1 ? 'Admin' : 'Staff'}</p>
-                   </div>
-                 </div>
-                 <button className="text-xs text-zinc-600 dark:text-zinc-400 hover:underline">Edit</button>
-               </div>
-             ))}
-             <button className="w-full py-2 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg text-sm text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors">
-               + Add New User
-             </button>
-          </div>
-        </div>
-
-        {/* General Settings */}
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-colors">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded-lg">
-              <Shield className="w-5 h-5" />
-            </div>
-            <h3 className="font-semibold text-zinc-900 dark:text-white">System Preferences</h3>
-          </div>
-          
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Bell className="w-4 h-4 text-zinc-400 dark:text-zinc-500" />
-                <span className="text-sm text-zinc-700 dark:text-zinc-300">Email Notifications</span>
-              </div>
-              <div className="w-10 h-6 bg-zinc-900 dark:bg-zinc-100 rounded-full relative cursor-pointer">
-                <div className="absolute right-1 top-1 w-4 h-4 bg-white dark:bg-zinc-900 rounded-full transition-all duration-300 translate-x-4"></div>
-              </div>
-            </div>
+             <div className="p-4 bg-surface dark:bg-slate-950 rounded-2xl border border-card-border dark:border-slate-800 flex items-center justify-between">
+                <span className="text-sm font-bold text-navy dark:text-white">API Key Status</span>
+                <span className="text-[10px] font-black text-emerald-500 uppercase">Valid</span>
+             </div>
+             <div className="p-4 bg-surface dark:bg-slate-950 rounded-2xl border border-card-border dark:border-slate-800 flex items-center justify-between">
+                <span className="text-sm font-bold text-navy dark:text-white">Auto-Sync</span>
+                <div className="w-10 h-5 bg-primary rounded-full relative">
+                   <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full shadow-sm" />
+                </div>
+             </div>
           </div>
         </div>
       </div>

@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../context/Store';
 import { Item, ItemStatus } from '../types';
-import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle } from 'lucide-react';
+import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle, X, Package } from 'lucide-react';
 import { read, utils, writeFile } from 'xlsx';
 
 const Inventory: React.FC = () => {
@@ -13,21 +14,16 @@ const Inventory: React.FC = () => {
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Bulk Delete State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Debounce Effect
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
-      // Reset selection when search changes for safety
       setSelectedIds(new Set());
     }, 300);
-
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // Form State
   const [formData, setFormData] = useState<Partial<Item>>({
     sku: '', name: '', category: '', price: 0, location: '', minLevel: 0, currentStock: 0, unit: 'pcs', status: 'Active', conversionRate: 1, secondaryUnit: ''
   });
@@ -70,280 +66,116 @@ const Inventory: React.FC = () => {
 
   const handleToggleSelectItem = (id: string) => {
     const next = new Set(selectedIds);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
+    if (next.has(id)) next.delete(id); else next.add(id);
     setSelectedIds(next);
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
-    if (window.confirm(`Are you sure you want to delete ${selectedIds.size} items? This cannot be undone.`)) {
-      try {
-        await bulkDeleteItems(Array.from(selectedIds));
-        setSelectedIds(new Set());
-        setNotification({ type: 'success', message: 'Selected items deleted successfully.' });
-        setTimeout(() => setNotification(null), 3000);
-      } catch (e) {
-        setNotification({ type: 'error', message: 'Failed to delete selected items.' });
-        setTimeout(() => setNotification(null), 3000);
-      }
-    }
-  };
-
-  const downloadTemplate = () => {
-    const headers = [
-      { 
-        SKU: "ELEC-009", 
-        Name: "Example Item", 
-        Category: "Electronics", 
-        Price: 100000, 
-        Location: "A-01", 
-        "Min Level": 10, 
-        Stock: 50, 
-        Unit: "pcs", 
-        Status: "Active",
-        "Secondary Unit": "Box",
-        "Items Per Secondary": 12
-      }
-    ];
-    const ws = utils.json_to_sheet(headers);
-    const wb = utils.book_new();
-    utils.book_append_sheet(wb, ws, "Template");
-    writeFile(wb, "Jupiter_Inventory_Template.xlsx");
-  };
-
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const data = await file.arrayBuffer();
-      const workbook = read(data);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData: any[] = utils.sheet_to_json(worksheet);
-
-      const parsedItems: Omit<Item, 'id'>[] = [];
-      let errorCount = 0;
-
-      jsonData.forEach((row: any) => {
-        if (!row.SKU || !row.Name) {
-          errorCount++;
-          return;
-        }
-
-        parsedItems.push({
-          sku: String(row.SKU),
-          name: String(row.Name),
-          category: row.Category || 'Uncategorized',
-          price: Number(row.Price) || 0,
-          location: String(row.Location || ''),
-          minLevel: Number(row['Min Level']) || 0,
-          currentStock: Number(row.Stock) || 0,
-          unit: String(row.Unit || 'pcs'),
-          status: (row.Status === 'Inactive' ? 'Inactive' : 'Active') as ItemStatus,
-          conversionRate: Number(row['Items Per Secondary']) || 1,
-          secondaryUnit: String(row['Secondary Unit'] || '')
-        });
-      });
-
-      if (parsedItems.length > 0) {
-        addItems(parsedItems);
-        setNotification({ type: 'success', message: `Successfully imported ${parsedItems.length} items.${errorCount > 0 ? ` Skipped ${errorCount} invalid rows.` : ''}` });
-      } else {
-        setNotification({ type: 'error', message: 'No valid items found in the file. Please use the template.' });
-      }
-    } catch (error) {
-      console.error(error);
-      setNotification({ type: 'error', message: 'Failed to parse Excel file.' });
-    }
-
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setTimeout(() => setNotification(null), 5000);
-  };
-
-  const formatStockDisplay = (item: Item) => {
-    if (!item.conversionRate || item.conversionRate <= 1 || !item.secondaryUnit) {
-      return (
-        <div className="flex flex-col items-center">
-          <span className={`font-semibold ${item.currentStock <= item.minLevel ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
-            {item.currentStock}
-          </span>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">{item.unit}</span>
-        </div>
-      );
-    }
-
-    const secondaryCount = Math.floor(item.currentStock / item.conversionRate);
-    const remainder = item.currentStock % item.conversionRate;
-
-    return (
-      <div className="flex flex-col items-center">
-        <div className={`font-semibold flex items-center gap-1 ${item.currentStock <= item.minLevel ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
-          {secondaryCount > 0 && (
-            <span>{secondaryCount} <span className="text-xs font-normal text-zinc-500">{item.secondaryUnit}</span></span>
-          )}
-          {secondaryCount > 0 && remainder > 0 && <span className="text-zinc-400 text-xs">+</span>}
-          {remainder > 0 && (
-            <span>{remainder} <span className="text-xs font-normal text-zinc-500">{item.unit}</span></span>
-          )}
-          {secondaryCount === 0 && remainder === 0 && (
-            <span>0 <span className="text-xs font-normal text-zinc-500">{item.unit}</span></span>
-          )}
-        </div>
-        <div className="text-[10px] text-zinc-400 dark:text-zinc-600">
-           Total: {item.currentStock} {item.unit}
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="space-y-6">
-      <div className="sticky top-0 z-20 bg-gray-50/95 dark:bg-zinc-950/95 backdrop-blur-sm pb-4 pt-2 -mt-2 transition-colors">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Inventory</h1>
-            <p className="text-zinc-500 dark:text-zinc-400">Manage your products and stock levels.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {selectedIds.size > 0 && (
-              <button 
-                onClick={handleBulkDelete}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 shadow-sm animate-in zoom-in duration-200"
-              >
-                <Trash2 className="w-4 h-4" /> Delete {selectedIds.size} Items
-              </button>
-            )}
-            <button 
-              onClick={downloadTemplate}
-              className="px-3 py-2 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors flex items-center gap-2"
-              title="Download Excel Template"
-            >
-              <FileDown className="w-4 h-4" /> <span className="hidden sm:inline">Template</span>
-            </button>
-            <label className="cursor-pointer px-3 py-2 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors flex items-center gap-2">
-              <Upload className="w-4 h-4" /> <span className="hidden sm:inline">Import</span>
-              <input 
-                ref={fileInputRef}
-                type="file" 
-                accept=".xlsx, .xls" 
-                className="hidden" 
-                onChange={handleImport}
-              />
-            </label>
-            <button 
-              onClick={() => handleOpenModal()}
-              className="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 rounded-lg text-sm font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors flex items-center gap-2 shadow-sm"
-            >
-              <Plus className="w-4 h-4" /> Add Item
-            </button>
-          </div>
+    <div className="space-y-8 pb-10">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+        <div>
+          <h1 className="text-2xl font-bold text-navy dark:text-white tracking-tight">Catalog</h1>
+          <p className="text-sm text-muted-gray font-medium">Manage and track your warehouse SKUs.</p>
         </div>
-
-        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col sm:flex-row gap-4 transition-colors">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 dark:text-blue-400" />
-            <input 
-              type="text" 
-              placeholder="Search by name or SKU..." 
-              className="w-full pl-10 pr-4 py-2 border border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10 text-zinc-900 dark:text-zinc-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 focus:border-transparent transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <button className="flex items-center gap-2 px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-            <Filter className="w-4 h-4" /> Filter
+        <div className="flex flex-wrap gap-2">
+          {selectedIds.size > 0 && (
+            <button 
+              onClick={() => { if(confirm(`Delete ${selectedIds.size} items?`)) bulkDeleteItems(Array.from(selectedIds)); setSelectedIds(new Set()); }}
+              className="bg-red-50 text-red-600 border border-red-100 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-red-100 transition-all flex items-center gap-2 shadow-soft animate-in zoom-in"
+            >
+              <Trash2 className="w-4 h-4" /> Delete {selectedIds.size}
+            </button>
+          )}
+          <button 
+            onClick={() => handleOpenModal()}
+            className="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-600 transition-all flex items-center gap-2 shadow-glow-primary active:scale-95"
+          >
+            <Plus className="w-4 h-4" /> Add Item
           </button>
         </div>
-        
-        {notification && (
-          <div className={`mt-2 p-3 rounded-lg flex items-center gap-2 text-sm animate-fade-in ${
-            notification.type === 'success' 
-              ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' 
-              : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
-          }`}>
-            {notification.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-            {notification.message}
-          </div>
-        )}
       </div>
 
-      <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden flex flex-col max-h-[calc(100vh-250px)] transition-colors">
-        <div className="overflow-auto scroll-smooth">
-          <table className="w-full text-sm text-left relative">
-            <thead className="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400 font-medium border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 shadow-sm">
-              <tr>
-                <th className="px-6 py-3 w-10">
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-card-border dark:border-slate-800 shadow-soft flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1 group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" />
+          <input 
+            type="text" 
+            placeholder="Search SKU or name..." 
+            className="w-full pl-11 pr-4 py-2.5 bg-surface dark:bg-slate-950 border border-transparent focus:border-primary/20 focus:ring-4 focus:ring-primary/5 rounded-2xl text-sm outline-none transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-2">
+           <button className="flex items-center gap-2 px-5 py-2.5 border border-card-border dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl text-xs font-bold text-navy dark:text-white hover:bg-surface transition-all shadow-soft">
+              <Filter className="w-4 h-4 text-primary" /> Filter
+           </button>
+           <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-5 py-2.5 border border-card-border dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl text-xs font-bold text-navy dark:text-white hover:bg-surface transition-all shadow-soft">
+              <Upload className="w-4 h-4 text-secondary" /> Import
+              <input ref={fileInputRef} type="file" className="hidden" />
+           </button>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-card-border dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <th className="px-8 py-5 w-10">
                   <input 
                     type="checkbox" 
-                    className="rounded text-zinc-900 dark:text-zinc-100 focus:ring-zinc-900 dark:focus:ring-zinc-500 w-4 h-4 cursor-pointer"
+                    className="rounded border-card-border text-primary focus:ring-primary/30 w-4 h-4"
                     checked={filteredItems.length > 0 && selectedIds.size === filteredItems.length}
                     onChange={handleToggleSelectAll}
                   />
                 </th>
-                <th className="px-6 py-3">Item Details</th>
-                <th className="px-6 py-3">Category</th>
-                <th className="px-6 py-3">Location</th>
-                <th className="px-6 py-3 text-right">Price</th>
-                <th className="px-6 py-3 text-center">Stock</th>
-                <th className="px-6 py-3 text-center">Status</th>
-                <th className="px-6 py-3 text-right">Actions</th>
+                <th className="px-4 py-5">Product Identity</th>
+                <th className="px-4 py-5">Category</th>
+                <th className="px-4 py-5 text-right">Price</th>
+                <th className="px-4 py-5 text-center">Stock Level</th>
+                <th className="px-4 py-5 text-center">Status</th>
+                <th className="px-8 py-5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
               {filteredItems.map((item) => (
-                <tr 
-                  key={item.id} 
-                  className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors group ${selectedIds.has(item.id) ? 'bg-zinc-50 dark:bg-zinc-800/20' : ''}`}
-                >
-                  <td className="px-6 py-4">
+                <tr key={item.id} className="group hover:bg-surface/50 dark:hover:bg-slate-800/30 transition-all duration-200">
+                  <td className="px-8 py-5">
                     <input 
                       type="checkbox" 
-                      className="rounded text-zinc-900 dark:text-zinc-100 focus:ring-zinc-900 dark:focus:ring-zinc-500 w-4 h-4 cursor-pointer"
+                      className="rounded border-card-border text-primary focus:ring-primary/30 w-4 h-4"
                       checked={selectedIds.has(item.id)}
                       onChange={() => handleToggleSelectItem(item.id)}
                     />
                   </td>
-                  <td className="px-6 py-4">
-                    <p className="font-medium text-zinc-900 dark:text-zinc-100">{item.name}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">{item.sku}</p>
+                  <td className="px-4 py-5">
+                    <div className="flex flex-col">
+                      <span className="font-bold text-sm text-navy dark:text-white leading-none">{item.name}</span>
+                      <span className="text-[10px] font-bold text-muted-gray uppercase tracking-wider mt-1.5">{item.sku}</span>
+                    </div>
                   </td>
-                  <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">{item.category}</td>
-                  <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400">{item.location}</td>
-                  <td className="px-6 py-4 text-zinc-900 dark:text-zinc-100 text-right font-medium">
+                  <td className="px-4 py-5">
+                    <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-wider">{item.category}</span>
+                  </td>
+                  <td className="px-4 py-5 text-right font-bold text-sm text-navy dark:text-white">
                     Rp {item.price.toLocaleString('id-ID')}
                   </td>
-                  <td className="px-6 py-4 text-center align-middle">
-                    {formatStockDisplay(item)}
+                  <td className="px-4 py-5 text-center">
+                    <div className="flex flex-col items-center">
+                      <span className={`text-sm font-black ${item.currentStock <= item.minLevel ? 'text-red-500' : 'text-navy dark:text-white'}`}>
+                        {item.currentStock}
+                      </span>
+                      <span className="text-[10px] font-bold text-muted-gray uppercase">{item.unit}</span>
+                    </div>
                   </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      item.status === 'Active' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
-                    }`}>
-                      {item.status}
-                    </span>
+                  <td className="px-4 py-5 text-center">
+                    <div className={`w-2.5 h-2.5 rounded-full mx-auto ${item.status === 'Active' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-slate-300'}`} />
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => handleOpenModal(item)}
-                        className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => {
-                          if (window.confirm('Are you sure you want to delete this item?')) {
-                            deleteItem(item.id);
-                          }
-                        }}
-                        className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded text-zinc-400 dark:text-zinc-500 hover:text-red-600 dark:hover:text-red-400"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                  <td className="px-8 py-5 text-right">
+                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <button onClick={() => handleOpenModal(item)} className="p-2 hover:bg-primary/10 rounded-xl text-primary"><Edit2 size={16} /></button>
+                      <button onClick={() => { if(confirm('Delete SKU?')) deleteItem(item.id); }} className="p-2 hover:bg-red-50 rounded-xl text-red-500"><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>
@@ -351,166 +183,56 @@ const Inventory: React.FC = () => {
             </tbody>
           </table>
           {filteredItems.length === 0 && (
-            <div className="p-8 text-center text-zinc-400 dark:text-zinc-500">
-              No items found matching your search.
+            <div className="py-20 text-center flex flex-col items-center opacity-30">
+               <Package size={48} className="text-muted-gray mb-4" />
+               <p className="text-xs font-bold uppercase tracking-widest">No matching records</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Modal Overlay */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transition-colors">
-            <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center sticky top-0 bg-white dark:bg-zinc-900 z-10">
-              <h2 className="text-lg font-bold text-zinc-900 dark:text-white">
-                {editingItem ? 'Edit Item' : 'Add New Item'}
-              </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100">
-                <Filter className="w-5 h-5 rotate-45" />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-navy/20 backdrop-blur-xl animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[32px] shadow-soft-lg overflow-hidden border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-200">
+            <div className="px-10 py-8 border-b border-card-border dark:border-slate-800 flex justify-between items-center">
+              <div>
+                 <h2 className="text-2xl font-bold text-navy dark:text-white">{editingItem ? 'Edit Product' : 'Create New SKU'}</h2>
+                 <p className="text-xs font-medium text-muted-gray mt-1">Fill in the identity details for this item.</p>
+              </div>
+              <button onClick={() => setIsModalOpen(false)} className="p-3 hover:bg-surface dark:hover:bg-slate-800 rounded-2xl transition-all">
+                <X size={20} className="text-muted-gray" />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="p-10 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">SKU</label>
-                  <input 
-                    required 
-                    type="text" 
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.sku}
-                    onChange={e => setFormData({...formData, sku: e.target.value})}
-                  />
+                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">SKU Identity</label>
+                  <input required type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-                  <input 
-                    required 
-                    type="text" 
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                  />
+                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">Product Name</label>
+                  <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Category</label>
-                  <select 
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.category}
-                    onChange={e => setFormData({...formData, category: e.target.value})}
-                  >
-                    <option value="">Select...</option>
-                    <option value="Electronics">Electronics</option>
-                    <option value="Furniture">Furniture</option>
-                    <option value="Office Supplies">Office Supplies</option>
-                    <option value="Raw Materials">Raw Materials</option>
-                  </select>
+                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">Unit Price (Rp)</label>
+                  <input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Location</label>
-                  <input 
-                    type="text" 
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.location}
-                    onChange={e => setFormData({...formData, location: e.target.value})}
-                  />
+                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">Current Stock</label>
+                  <input required type="number" value={formData.currentStock} onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Price</label>
-                  <input 
-                    required 
-                    type="number" 
-                    min="0"
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.price}
-                    onChange={e => setFormData({...formData, price: Number(e.target.value)})}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Current Stock</label>
-                  <input 
-                    required 
-                    type="number" 
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.currentStock}
-                    onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})}
-                  />
-                </div>
-                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Base Unit (e.g., pcs)</label>
-                  <input 
-                    required 
-                    type="text" 
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.unit}
-                    onChange={e => setFormData({...formData, unit: e.target.value})}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Min Stock Level</label>
-                  <input 
-                    required 
-                    type="number" 
-                    min="0"
-                    className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                    value={formData.minLevel}
-                    onChange={e => setFormData({...formData, minLevel: Number(e.target.value)})}
-                  />
-                </div>
-                
-                <div className="md:col-span-2 grid grid-cols-2 gap-4 border-t border-dashed border-zinc-200 dark:border-zinc-800 pt-4 mt-2">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Secondary Unit (e.g., Box)</label>
-                    <input 
-                      type="text" 
-                      placeholder="Optional"
-                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none placeholder-zinc-400"
-                      value={formData.secondaryUnit}
-                      onChange={e => setFormData({...formData, secondaryUnit: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Items per Secondary Unit</label>
-                    <input 
-                      type="number" 
-                      min="1"
-                      placeholder="1"
-                      className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 rounded-lg focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-500 focus:outline-none"
-                      value={formData.conversionRate}
-                      onChange={e => setFormData({...formData, conversionRate: Number(e.target.value)})}
-                    />
-                  </div>
-                  <p className="md:col-span-2 text-xs text-zinc-400">
-                    Define a secondary unit to track stock in larger packages (e.g., 1 Box = 12 Pcs). Stock is always stored in base units.
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-2 pt-2">
-                <input 
-                  type="checkbox" 
-                  id="status"
-                  className="rounded text-zinc-900 dark:text-zinc-100 focus:ring-zinc-900 dark:focus:ring-zinc-500"
-                  checked={formData.status === 'Active'}
-                  onChange={e => setFormData({...formData, status: e.target.checked ? 'Active' : 'Inactive'})}
-                />
-                <label htmlFor="status" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Active Item</label>
               </div>
 
-              <div className="flex justify-end gap-3 pt-6 border-t border-zinc-100 dark:border-zinc-800 mt-4">
-                <button 
-                  type="button" 
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-sm font-medium"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="px-4 py-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-lg text-sm font-medium hover:bg-zinc-800 dark:hover:bg-zinc-200"
-                >
-                  {editingItem ? 'Save Changes' : 'Create Item'}
+              <div className="flex items-center gap-3 pt-4">
+                 <input type="checkbox" id="status" className="w-5 h-5 rounded border-card-border text-primary focus:ring-primary/30" checked={formData.status === 'Active'} onChange={e => setFormData({...formData, status: e.target.checked ? 'Active' : 'Inactive'})} />
+                 <label htmlFor="status" className="text-sm font-bold text-navy dark:text-white">Active Product</label>
+              </div>
+
+              <div className="flex justify-end gap-4 pt-6">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 font-bold text-muted-gray hover:text-navy transition-all">Discard</button>
+                <button type="submit" className="px-10 py-3 bg-primary text-white rounded-2xl font-bold shadow-glow-primary hover:bg-blue-600 transition-all active:scale-95">
+                  {editingItem ? 'Save Changes' : 'Create Product'}
                 </button>
               </div>
             </form>
