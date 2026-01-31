@@ -40,8 +40,9 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('jupiter_theme') === 'dark');
   const [backendOnline, setBackendOnline] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  // Default to proxy path which points to 159.223.57.240 via vercel.json
-  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "/api");
+  
+  // URL Default AppScript User (Harus diupdate di halaman Admin)
+  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "");
 
   const toggleTheme = () => {
     setIsDarkMode(prev => !prev);
@@ -58,37 +59,19 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   }, [isDarkMode]);
 
   const updateApiUrl = (newUrl: string) => {
-    const normalized = newUrl.endsWith('/') ? newUrl.slice(0, -1) : newUrl;
-    localStorage.setItem('jupiter_api_url', normalized);
-    setApiUrl(normalized);
+    localStorage.setItem('jupiter_api_url', newUrl);
+    setApiUrl(newUrl);
   };
 
   const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
     try {
-      const base = url.endsWith('/') ? url.slice(0, -1) : url;
-      // Ensure we hit the sync endpoint for a fast ping test
-      const res = await fetch(`${base}/sync`, { method: 'GET' });
-      if (res.ok) return { success: true, message: "Koneksi ke VPS Berhasil!" };
-      return { success: false, message: `Server merespon error: ${res.status}` };
+      const res = await fetch(url);
+      if (res.ok) return { success: true, message: "Koneksi AppScript Berhasil!" };
+      return { success: false, message: "Server merespon, tapi cek izin Web App Anda." };
     } catch (e: any) {
-      return { success: false, message: `Gagal terhubung ke VPS: ${e.message}` };
+      return { success: false, message: "URL Tidak Valid atau CORS Error." };
     }
   };
-
-  const mapItem = (dbItem: any): Item => ({
-    id: dbItem.id,
-    sku: dbItem.sku,
-    name: dbItem.name,
-    category: dbItem.category,
-    price: parseFloat(dbItem.price) || 0,
-    location: dbItem.location || '-',
-    minLevel: dbItem.min_level || 0,
-    status: dbItem.status || 'Active',
-    currentStock: parseFloat(dbItem.current_stock) || 0,
-    unit: dbItem.unit || 'pcs',
-    conversionRate: dbItem.conversion_rate || 1,
-    secondaryUnit: dbItem.secondary_unit || ''
-  });
 
   const safeJsonParse = (val: any) => {
     if (!val) return [];
@@ -103,26 +86,31 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   };
 
   const fetchData = async () => {
+    if (!apiUrl) return;
     try {
-      const base = apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
-      const res = await fetch(`${base}/sync`);
-      if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-      
+      const res = await fetch(apiUrl);
       const data = await res.json();
 
-      const cleanedTransactions = (data.transactions || []).map((t: any) => ({
+      setItems((data.items || []).map((item: any) => ({
+        ...item,
+        price: parseFloat(item.price) || 0,
+        currentStock: parseFloat(item.currentStock) || 0,
+        minLevel: parseInt(item.minLevel) || 0,
+        conversionRate: parseFloat(item.conversionRate) || 1
+      })));
+      
+      setTransactions((data.transactions || []).map((t: any) => ({
         ...t,
         items: safeJsonParse(t.items),
         photos: safeJsonParse(t.photos),
-      }));
-
-      setItems((data.items || []).map(mapItem));
-      setTransactions(cleanedTransactions);
+      })));
+      
       setRejectMasterData(data.rejectMaster || []);
       setRejectLogs((data.rejectLogs || []).map((l: any) => ({ 
         ...l, 
         items: safeJsonParse(l.items) 
       })));
+      
       setBackendOnline(true);
       setLastError(null);
     } catch (e: any) {
@@ -133,114 +121,47 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // More frequent sync for new VPS
-    return () => clearInterval(interval);
   }, [apiUrl]);
 
-  const addItem = async (newItem: Omit<Item, 'id'>) => {
-    await fetch(`${apiUrl}/items`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newItem)
-    });
-    fetchData();
-  };
-
-  const addItems = async (itemsList: any[]) => {
-    for (const item of itemsList) {
-      await fetch(`${apiUrl}/items`, {
+  const postAction = async (action: string, data: any) => {
+    if (!apiUrl) return;
+    try {
+      await fetch(apiUrl, {
         method: 'POST',
+        mode: 'no-cors', // Penting untuk Google Apps Script
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item)
+        body: JSON.stringify({ action, data })
       });
+      // Karena no-cors tidak bisa baca response, kita refresh data setelah delay kecil
+      setTimeout(fetchData, 1000);
+    } catch (err) {
+      console.error(err);
     }
-    fetchData();
   };
 
-  const updateItem = async (it: Item) => {
-    await fetch(`${apiUrl}/items/${it.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(it)
-    });
-    fetchData();
-  };
-
-  const deleteItem = async (id: string) => {
-    await fetch(`${apiUrl}/items/${id}`, { method: 'DELETE' });
-    fetchData();
-  };
-
-  const bulkDeleteItems = async (ids: string[]) => {
-    await fetch(`${apiUrl}/items/bulk-delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids })
-    });
-    fetchData();
-  };
-
+  const addItem = (newItem: Omit<Item, 'id'>) => postAction('addItem', newItem);
+  const updateItem = (it: Item) => postAction('updateItem', it);
+  const deleteItem = (id: string) => postAction('deleteItem', { id });
+  
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
-    try {
-      const res = await fetch(`${apiUrl}/transactions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trx: { type, items: cart, ...details }, items_update: cart.map(c => ({ id: c.itemId, quantity: c.quantity, type })) })
-      });
-      if (res.ok) { fetchData(); return true; }
-      return false;
-    } catch { return false; }
-  };
-
-  const updateTransaction = async (trx: Transaction): Promise<boolean> => {
-    try {
-      const res = await fetch(`${apiUrl}/transactions/${trx.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(trx)
-      });
-      if (res.ok) { fetchData(); return true; }
-      return false;
-    } catch { return false; }
-  };
-
-  const deleteTransaction = async (id: string) => {
-    await fetch(`${apiUrl}/transactions/${id}`, { method: 'DELETE' });
-    fetchData();
-  };
-
-  const addRejectLog = async (log: RejectLog) => {
-    await fetch(`${apiUrl}/reject-logs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(log)
+    await postAction('processTransaction', { 
+      trx: { type, items: cart, ...details }, 
+      items_update: cart.map(c => ({ id: c.itemId, quantity: c.quantity, type })) 
     });
-    fetchData();
+    return true;
   };
 
-  const updateRejectMaster = async (newList: RejectItem[]) => {
-    await fetch(`${apiUrl}/reject-master/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: newList })
-    });
-    fetchData();
-  };
-
-  const resetDatabase = async () => {
-    const res = await fetch(`${apiUrl}/reset-database`, { method: 'DELETE' });
-    if (res.ok) { fetchData(); return true; }
-    return false;
-  };
+  const deleteTransaction = (id: string) => postAction('deleteTransaction', { id });
+  const addRejectLog = (log: RejectLog) => postAction('addRejectLog', log);
 
   return (
     <AppContext.Provider value={{ 
       items, transactions, rejectMasterData, rejectLogs, 
-      addItem, addItems, updateItem, deleteItem, bulkDeleteItems,
-      processTransaction, deleteTransaction, updateTransaction,
+      addItem, addItems: () => {}, updateItem, deleteItem, bulkDeleteItems: async () => {},
+      processTransaction, deleteTransaction, updateTransaction: async () => true,
       addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
-      updateRejectMaster, isDarkMode, toggleTheme, backendOnline, lastError,
-      refreshData: fetchData, apiUrl, updateApiUrl, testConnection, resetDatabase
+      updateRejectMaster: () => {}, isDarkMode, toggleTheme, backendOnline, lastError,
+      refreshData: fetchData, apiUrl, updateApiUrl, testConnection, resetDatabase: async () => false
     }}>
       {children}
     </AppContext.Provider>
