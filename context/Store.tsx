@@ -46,11 +46,16 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "");
 
-  // Guard for blocking background fetch during write operations
+  // CRITICAL: Gunakan ref untuk URL agar selalu sinkron di fungsi async
+  const apiUrlRef = useRef<string>(apiUrl);
   const syncLockRef = useRef<boolean>(false);
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
   const toggleTheme = () => setIsDarkMode(prev => !prev);
+
+  useEffect(() => {
+    apiUrlRef.current = apiUrl;
+  }, [apiUrl]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -63,17 +68,27 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   }, [isDarkMode]);
 
   const updateApiUrl = (newUrl: string) => {
-    localStorage.setItem('jupiter_api_url', newUrl);
-    setApiUrl(newUrl);
+    let formattedUrl = newUrl.trim();
+    // Pastikan URL valid untuk Google Apps Script
+    if (formattedUrl && !formattedUrl.endsWith('/exec')) {
+      if (formattedUrl.includes('/exec?')) {
+        // do nothing
+      } else {
+        formattedUrl = formattedUrl.replace(/\/$/, '') + '/exec';
+      }
+    }
+    localStorage.setItem('jupiter_api_url', formattedUrl);
+    apiUrlRef.current = formattedUrl;
+    setApiUrl(formattedUrl);
   };
 
   const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
     try {
       const res = await fetch(url);
-      if (res.ok) return { success: true, message: "Koneksi Google Sheets Aktif!" };
-      return { success: false, message: "URL valid tapi Sheet tidak merespon." };
+      if (res.ok) return { success: true, message: "Koneksi Aktif! Data terbaca." };
+      return { success: false, message: "HTTP Error: " + res.status };
     } catch (e) {
-      return { success: false, message: "Cek kembali URL (Pastikan deployed sebagai Web App)." };
+      return { success: false, message: "Koneksi Gagal: Cek CORS/URL." };
     }
   };
 
@@ -87,14 +102,18 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   };
 
   const fetchData = useCallback(async (force = false) => {
-    if (!apiUrl || (!force && syncLockRef.current)) return;
+    const currentUrl = apiUrlRef.current;
+    if (!currentUrl || (!force && syncLockRef.current)) return;
     
     try {
-      const res = await fetch(apiUrl);
-      const data = await res.json();
+      const res = await fetch(currentUrl);
+      if (!res.ok) throw new Error("Server responded with " + res.status);
       
-      // Jika data error dari Apps Script
+      const data = await res.json();
       if (data.error) throw new Error(data.error);
+
+      // Pastikan kita tidak menimpa jika sedang ada proses tulis (Double Check)
+      if (!force && syncLockRef.current) return;
 
       setItems((data.items || []).map((item: any) => ({
         ...item,
@@ -106,7 +125,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setTransactions((data.transactions || []).map((t: any) => ({
         ...t,
         items: safeJsonParse(t.items),
-        photos: t.photos,
+        photos: safeJsonParse(t.photos),
       })));
       setRejectMasterData(data.rejectMaster || []);
       setRejectLogs((data.rejectLogs || []).map((l: any) => ({ 
@@ -118,10 +137,11 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setLastError(null);
       setLastSync(new Date());
     } catch (e: any) {
+      console.error("Fetch Data Error:", e);
       setBackendOnline(false);
       setLastError(e.message);
     }
-  }, [apiUrl]);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -130,14 +150,15 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   }, [fetchData]);
 
   const pushAction = async (action: string, data: any) => {
-    if (!apiUrl) return false;
+    const currentUrl = apiUrlRef.current;
+    if (!currentUrl) return false;
     
-    // Aktifkan lock agar fetchData latar belakang tidak menimpa state lokal yang baru diupdate
     syncLockRef.current = true;
     setIsSyncing(true);
     
     try {
-      const response = await fetch(apiUrl, {
+      // Kita pakai text/plain untuk menghindari CORS pre-flight yang ribet di Apps Script
+      const response = await fetch(currentUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action, data })
@@ -146,17 +167,19 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       const result = await response.json();
       
       if (result.success) {
-        // Beri waktu tambahan 3 detik sebelum melepas lock agar Google Sheets benar-benar stabil
+        // TUNGGU: Beri jeda 3 detik agar Google Spreadsheet stabil setelah penulisan
+        // sebelum kita melakukan fetch ulang data terbaru.
         setTimeout(() => {
           syncLockRef.current = false;
           setIsSyncing(false);
-          fetchData(true); // Force fetch data terbaru
-        }, 5000);
+          fetchData(true);
+        }, 3000);
         return true;
       } else {
-        throw new Error(result.error || "Gagal menyimpan ke server");
+        throw new Error(result.error || "Gagal di sisi server");
       }
     } catch (err: any) {
+      console.error("Push Action Error:", err);
       setLastError(err.message);
       setIsSyncing(false);
       syncLockRef.current = false;
@@ -217,7 +240,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       ...details
     };
 
-    // Update lokal dulu (Optimistic UI)
     setTransactions(prev => [newTrx, ...prev]);
     setItems(prev => prev.map(item => {
       const update = itemsUpdateWithMetadata.find(u => u.id === item.id);

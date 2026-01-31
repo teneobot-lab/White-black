@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { User, Shield, Bell, Server, Link, Save, RotateCcw, CheckCircle2, XCircle, Activity, Info, Settings, Lock, Database } from 'lucide-react';
+import { Link, Save, CheckCircle2, XCircle, Activity, Info, Database } from 'lucide-react';
 import { useAppStore } from '../context/Store';
 
 const Admin: React.FC = () => {
@@ -10,6 +10,7 @@ const Admin: React.FC = () => {
   const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
 
   const handleTestConnection = async () => {
+    if (!tempUrl) return;
     setIsSaving(true);
     setTestResult(null);
     const result = await testConnection(tempUrl);
@@ -18,12 +19,16 @@ const Admin: React.FC = () => {
   };
 
   const handleSaveUrl = async () => {
+    if (!tempUrl) return;
     setIsSaving(true);
     updateApiUrl(tempUrl);
+    
+    // Beri jeda sedikit agar ref di Store terupdate, lalu paksa refresh data
     setTimeout(async () => {
       await refreshData();
       setIsSaving(false);
-    }, 1500);
+      setTestResult({ success: true, message: "URL Berhasil disimpan dan data diperbarui!" });
+    }, 1000);
   };
 
   return (
@@ -82,14 +87,14 @@ const Admin: React.FC = () => {
               <div className="flex gap-2">
                  <button 
                   onClick={handleTestConnection}
-                  disabled={isSaving}
+                  disabled={isSaving || !tempUrl}
                   className="px-6 py-3.5 bg-white dark:bg-slate-800 text-navy dark:text-white border border-card-border dark:border-slate-800 rounded-[20px] text-[10px] font-black hover:bg-surface transition-all disabled:opacity-50 flex items-center gap-2 shadow-soft"
                 >
                   <Activity className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} /> TEST
                 </button>
                 <button 
                   onClick={handleSaveUrl}
-                  disabled={isSaving}
+                  disabled={isSaving || !tempUrl}
                   className="px-8 py-3.5 bg-primary text-white rounded-[20px] text-[10px] font-black hover:bg-blue-600 transition-all shadow-glow-primary flex items-center gap-2"
                 >
                   <Save size={16} /> CONNECT
@@ -108,31 +113,6 @@ const Admin: React.FC = () => {
               <div className="text-xs font-bold leading-relaxed">{testResult.message}</div>
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="p-3 bg-secondary/10 text-secondary rounded-2xl">
-              <Shield size={24} />
-            </div>
-            <h3 className="font-bold text-navy dark:text-white text-lg">Keamanan</h3>
-          </div>
-          <p className="text-xs text-muted-gray leading-relaxed font-medium">
-            Aplikasi menggunakan protokol HTTPS terenkripsi dari Google untuk menjamin integritas data inventaris Anda di Google Sheets.
-          </p>
-        </div>
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="p-3 bg-accent/10 text-accent rounded-2xl">
-              <Lock size={24} />
-            </div>
-            <h3 className="font-bold text-navy dark:text-white text-lg">Privacy</h3>
-          </div>
-          <p className="text-xs text-muted-gray leading-relaxed font-medium">
-            Data hanya dapat diakses melalui endpoint yang Anda miliki secara privat di Google Cloud.
-          </p>
         </div>
       </div>
     </div>

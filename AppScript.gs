@@ -24,10 +24,13 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  // Gunakan LockService agar tidak terjadi tabrakan data saat banyak user input
   const lock = LockService.getScriptLock();
   try {
-    lock.waitLock(30000); // Tunggu maksimal 30 detik
+    // Tunggu akses ke sheet (penting saat banyak request masuk)
+    if (!lock.tryLock(15000)) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Server busy (Lock timeout)" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     
     const postData = JSON.parse(e.postData.contents);
     const action = postData.action;
@@ -61,11 +64,14 @@ function doPost(e) {
       case 'bulkAddRejectItems':
         addRows("RejectMaster", data.items);
         break;
+      case 'deleteTransaction':
+        deleteRow("Transactions", data.id);
+        break;
       default:
         throw new Error("Action not found: " + action);
     }
     
-    // Pastikan data benar-benar tersimpan ke Spreadsheet sebelum melepas lock
+    // Paksa tulis ke database sebelum melepas lock
     SpreadsheetApp.flush();
     
     return ContentService.createTextOutput(JSON.stringify({ success: true }))
@@ -85,25 +91,6 @@ function handleTransaction(payload) {
   const sheetTrx = SS.getSheetByName("Transactions");
   const sheetItems = SS.getSheetByName("Items");
   
-  let driveLink = "";
-  if (trx.photos && trx.photos.length > 0) {
-    const folderName = `Photos_${trx.transactionId}`;
-    let folder;
-    try {
-      folder = DriveApp.createFolder(folderName);
-    } catch(e) {
-      folder = DriveApp.getRootFolder().createFolder(folderName);
-    }
-    trx.photos.forEach((base64, idx) => {
-      if (!base64.includes(',')) return;
-      const contentType = base64.substring(5, base64.indexOf(';'));
-      const bytes = Utilities.base64Decode(base64.split(',')[1]);
-      const blob = Utilities.newBlob(bytes, contentType, `photo_${idx}.jpg`);
-      folder.createFile(blob);
-    });
-    driveLink = folder.getUrl();
-  }
-
   // Update Stok di Sheet Items
   updates.forEach(upd => {
     let itemFound = false;
@@ -121,7 +108,7 @@ function handleTransaction(payload) {
   });
 
   // Tambah baris transaksi
-  sheetTrx.appendRow([trx.id, trx.transactionId, trx.type, trx.date, JSON.stringify(trx.items), trx.supplierName || "", trx.poNumber || "", trx.sjNumber || "", trx.totalItems, driveLink]);
+  sheetTrx.appendRow([trx.id, trx.transactionId, trx.type, trx.date, JSON.stringify(trx.items), trx.supplierName || "", trx.poNumber || "", trx.riNumber || "", trx.sjNumber || "", trx.totalItems, JSON.stringify(trx.photos || [])]);
 }
 
 function getSheetData(name) {
