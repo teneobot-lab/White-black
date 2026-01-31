@@ -46,7 +46,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "");
 
-  // CRITICAL: Gunakan ref untuk URL agar selalu sinkron di fungsi async
   const apiUrlRef = useRef<string>(apiUrl);
   const syncLockRef = useRef<boolean>(false);
 
@@ -69,11 +68,8 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const updateApiUrl = (newUrl: string) => {
     let formattedUrl = newUrl.trim();
-    // Pastikan URL valid untuk Google Apps Script
     if (formattedUrl && !formattedUrl.endsWith('/exec')) {
-      if (formattedUrl.includes('/exec?')) {
-        // do nothing
-      } else {
+      if (!formattedUrl.includes('/exec?')) {
         formattedUrl = formattedUrl.replace(/\/$/, '') + '/exec';
       }
     }
@@ -85,10 +81,10 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
     try {
       const res = await fetch(url);
-      if (res.ok) return { success: true, message: "Koneksi Aktif! Data terbaca." };
+      if (res.ok) return { success: true, message: "Koneksi Aktif! Spreadsheet terbaca." };
       return { success: false, message: "HTTP Error: " + res.status };
     } catch (e) {
-      return { success: false, message: "Koneksi Gagal: Cek CORS/URL." };
+      return { success: false, message: "Koneksi Gagal: Cek URL Apps Script." };
     }
   };
 
@@ -107,12 +103,12 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     
     try {
       const res = await fetch(currentUrl);
-      if (!res.ok) throw new Error("Server responded with " + res.status);
+      if (!res.ok) throw new Error("Server Error: " + res.status);
       
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // Pastikan kita tidak menimpa jika sedang ada proses tulis (Double Check)
+      // Re-check lock after network request to prevent state overriding
       if (!force && syncLockRef.current) return;
 
       setItems((data.items || []).map((item: any) => ({
@@ -157,7 +153,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     setIsSyncing(true);
     
     try {
-      // Kita pakai text/plain untuk menghindari CORS pre-flight yang ribet di Apps Script
       const response = await fetch(currentUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -167,19 +162,18 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       const result = await response.json();
       
       if (result.success) {
-        // TUNGGU: Beri jeda 3 detik agar Google Spreadsheet stabil setelah penulisan
-        // sebelum kita melakukan fetch ulang data terbaru.
+        // Beri waktu 4 detik agar Google Sheets selesai memproses flush
         setTimeout(() => {
           syncLockRef.current = false;
           setIsSyncing(false);
           fetchData(true);
-        }, 3000);
+        }, 4000);
         return true;
       } else {
-        throw new Error(result.error || "Gagal di sisi server");
+        throw new Error(result.error || "Gagal menyimpan ke server");
       }
     } catch (err: any) {
-      console.error("Push Action Error:", err);
+      console.error("Push Action Error:", err.message);
       setLastError(err.message);
       setIsSyncing(false);
       syncLockRef.current = false;

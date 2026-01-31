@@ -6,6 +6,29 @@
 
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 
+// Definisi Header untuk inisialisasi otomatis jika sheet tidak ada
+const HEADERS = {
+  "Items": ["id", "sku", "name", "category", "price", "location", "minLevel", "currentStock", "unit", "status", "conversionRate", "secondaryUnit"],
+  "Transactions": ["id", "transactionId", "type", "date", "items", "supplierName", "poNumber", "riNumber", "sjNumber", "totalItems", "photos"],
+  "RejectMaster": ["id", "sku", "name", "baseUnit", "unit2", "ratio2", "unit3", "ratio3", "lastUpdated"],
+  "RejectLogs": ["id", "date", "items", "notes", "timestamp"]
+};
+
+/**
+ * Mendapatkan sheet berdasarkan nama, buat baru jika tidak ada.
+ */
+function getSafeSheet(name) {
+  let sheet = SS.getSheetByName(name);
+  if (!sheet) {
+    sheet = SS.insertSheet(name);
+    const headers = HEADERS[name] || ["id"];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    SpreadsheetApp.flush();
+  }
+  return sheet;
+}
+
 function doGet(e) {
   try {
     const data = {
@@ -26,9 +49,8 @@ function doGet(e) {
 function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
-    // Tunggu akses ke sheet (penting saat banyak request masuk)
     if (!lock.tryLock(15000)) {
-      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Server busy (Lock timeout)" }))
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Server sibuk (Lock timeout)" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -71,9 +93,7 @@ function doPost(e) {
         throw new Error("Action not found: " + action);
     }
     
-    // Paksa tulis ke database sebelum melepas lock
     SpreadsheetApp.flush();
-    
     return ContentService.createTextOutput(JSON.stringify({ success: true }))
       .setMimeType(ContentService.MimeType.JSON);
       
@@ -88,8 +108,8 @@ function doPost(e) {
 function handleTransaction(payload) {
   const trx = payload.trx;
   const updates = payload.items_update;
-  const sheetTrx = SS.getSheetByName("Transactions");
-  const sheetItems = SS.getSheetByName("Items");
+  const sheetTrx = getSafeSheet("Transactions");
+  const sheetItems = getSafeSheet("Items");
   
   // Update Stok di Sheet Items
   updates.forEach(upd => {
@@ -97,6 +117,7 @@ function handleTransaction(payload) {
     const itemRows = sheetItems.getDataRange().getValues();
     for (let i = 1; i < itemRows.length; i++) {
       if (itemRows[i][0] == upd.id || itemRows[i][1] == upd.sku) {
+        // Kolom 8 adalah currentStock
         sheetItems.getRange(i + 1, 8).setValue(upd.currentStock);
         itemFound = true;
         break;
@@ -108,12 +129,17 @@ function handleTransaction(payload) {
   });
 
   // Tambah baris transaksi
-  sheetTrx.appendRow([trx.id, trx.transactionId, trx.type, trx.date, JSON.stringify(trx.items), trx.supplierName || "", trx.poNumber || "", trx.riNumber || "", trx.sjNumber || "", trx.totalItems, JSON.stringify(trx.photos || [])]);
+  const headers = HEADERS["Transactions"];
+  const newRow = headers.map(h => {
+    let val = trx[h];
+    if (h === 'items' || h === 'photos') return JSON.stringify(val || []);
+    return val === undefined ? "" : val;
+  });
+  sheetTrx.appendRow(newRow);
 }
 
 function getSheetData(name) {
-  const sheet = SS.getSheetByName(name);
-  if (!sheet) return [];
+  const sheet = getSafeSheet(name);
   const rows = sheet.getDataRange().getValues();
   if (rows.length < 2) return [];
   const headers = rows.shift();
@@ -125,18 +151,19 @@ function getSheetData(name) {
 }
 
 function addRow(sheetName, data) {
-  const sheet = SS.getSheetByName(sheetName);
+  const sheet = getSafeSheet(sheetName);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const newRow = headers.map(h => data[h] === undefined ? "" : data[h]);
   sheet.appendRow(newRow);
 }
 
 function addRows(sheetName, items) {
+  const sheet = getSafeSheet(sheetName);
   items.forEach(item => addRow(sheetName, item));
 }
 
 function updateRow(sheetName, id, data) {
-  const sheet = SS.getSheetByName(sheetName);
+  const sheet = getSafeSheet(sheetName);
   const rows = sheet.getDataRange().getValues();
   const headers = rows[0];
   for (let i = 1; i < rows.length; i++) {
@@ -152,7 +179,7 @@ function updateRow(sheetName, id, data) {
 }
 
 function deleteRow(sheetName, id) {
-  const sheet = SS.getSheetByName(sheetName);
+  const sheet = getSafeSheet(sheetName);
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][0] == id) {

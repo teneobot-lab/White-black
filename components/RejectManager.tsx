@@ -216,7 +216,9 @@ const RejectManager: React.FC = () => {
   const handleExportFlattened = () => {
     if (rejectLogs.length === 0) return;
     const allDates: string[] = Array.from(new Set(rejectLogs.map(l => l.date))).sort();
-    const allSkus: string[] = Array.from(new Set(rejectLogs.flatMap(l => l.items.map(it => it.sku))));
+    
+    // Fix: Add explicit type to Set and cast mapping results to ensure string array inference
+    const allSkus: string[] = Array.from(new Set<string>(rejectLogs.flatMap(l => l.items.map(it => it.sku as string))));
 
     const flattenedData = allSkus.map(sku => {
       const itemInfo = rejectMasterData.find(m => m.sku === sku);
