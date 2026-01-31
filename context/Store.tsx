@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
+import React, { createContext, useContext, useState, useEffect, PropsWithChildren, useCallback } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
 interface AppContextType {
@@ -8,26 +8,21 @@ interface AppContextType {
   rejectMasterData: RejectItem[];
   rejectLogs: RejectLog[];
   addItem: (item: Omit<Item, 'id'>) => void;
-  addItems: (items: (Omit<Item, 'id'> & { id?: string })[]) => void;
   updateItem: (item: Item) => void;
   deleteItem: (id: string) => void;
   bulkDeleteItems: (ids: string[]) => Promise<void>;
   processTransaction: (type: TransactionType, cart: CartItem[], details: any) => Promise<boolean>;
-  updateTransaction: (transaction: Transaction) => Promise<boolean>;
   deleteTransaction: (id: string) => void;
   addRejectLog: (log: RejectLog) => void;
-  updateRejectLog: (log: RejectLog) => void;
-  deleteRejectLog: (id: string) => void;
-  updateRejectMaster: (newList: RejectItem[]) => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
   backendOnline: boolean;
   lastError: string | null;
+  lastSync: Date | null;
   refreshData: () => Promise<void>;
   apiUrl: string;
   updateApiUrl: (url: string) => void;
   testConnection: (url: string) => Promise<{success: boolean, message: string}>;
-  resetDatabase: () => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -40,13 +35,13 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('jupiter_theme') === 'dark');
   const [backendOnline, setBackendOnline] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
   
-  // URL Default AppScript User (Harus diupdate di halaman Admin)
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "");
 
-  const toggleTheme = () => {
-    setIsDarkMode(prev => !prev);
-  };
+  const generateId = () => Math.random().toString(36).substr(2, 9);
+
+  const toggleTheme = () => setIsDarkMode(prev => !prev);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -66,10 +61,10 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const testConnection = async (url: string): Promise<{success: boolean, message: string}> => {
     try {
       const res = await fetch(url);
-      if (res.ok) return { success: true, message: "Koneksi AppScript Berhasil!" };
-      return { success: false, message: "Server merespon, tapi cek izin Web App Anda." };
-    } catch (e: any) {
-      return { success: false, message: "URL Tidak Valid atau CORS Error." };
+      if (res.ok) return { success: true, message: "Koneksi Google Sheets Aktif!" };
+      return { success: false, message: "URL valid tapi Sheet tidak merespon." };
+    } catch (e) {
+      return { success: false, message: "URL Salah atau CORS Blocked." };
     }
   };
 
@@ -77,15 +72,13 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     if (!val) return [];
     if (Array.isArray(val)) return val;
     if (typeof val === 'string') {
-      try {
-        const p = JSON.parse(val);
-        return Array.isArray(p) ? p : [p];
-      } catch (e) { return []; }
+      try { return JSON.parse(val); } catch (e) { return []; }
     }
     return [];
   };
 
-  const fetchData = async () => {
+  // --- LOGIKA SYNC UTAMA (GET) ---
+  const fetchData = useCallback(async () => {
     if (!apiUrl) return;
     try {
       const res = await fetch(apiUrl);
@@ -113,55 +106,118 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       
       setBackendOnline(true);
       setLastError(null);
+      setLastSync(new Date());
     } catch (e: any) {
       setBackendOnline(false);
       setLastError(e.message);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
   }, [apiUrl]);
 
-  const postAction = async (action: string, data: any) => {
+  // Initial load & Polling (Sync Otomatis setiap 30 detik)
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  // --- LOGIKA AUTOMATIC PUSH (POST) ---
+  const pushAction = async (action: string, data: any) => {
     if (!apiUrl) return;
     try {
-      await fetch(apiUrl, {
+      // Background push
+      fetch(apiUrl, {
         method: 'POST',
-        mode: 'no-cors', // Penting untuk Google Apps Script
+        mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, data })
       });
-      // Karena no-cors tidak bisa baca response, kita refresh data setelah delay kecil
-      setTimeout(fetchData, 1000);
+      
+      // Re-validate state after push (delay for GS processing)
+      setTimeout(fetchData, 2500);
     } catch (err) {
-      console.error(err);
+      console.error("Sync Push Error:", err);
     }
   };
 
-  const addItem = (newItem: Omit<Item, 'id'>) => postAction('addItem', newItem);
-  const updateItem = (it: Item) => postAction('updateItem', it);
-  const deleteItem = (id: string) => postAction('deleteItem', { id });
-  
+  // --- MUTATION WRAPPERS (Optimistic UI) ---
+
+  const addItem = (newItem: Omit<Item, 'id'>) => {
+    const id = generateId();
+    const fullItem = { ...newItem, id } as Item;
+    // Update Lokal Instan
+    setItems(prev => [...prev, fullItem]);
+    // Push ke Server
+    pushAction('addItem', fullItem);
+  };
+
+  const updateItem = (updatedItem: Item) => {
+    setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+    pushAction('updateItem', updatedItem);
+  };
+
+  const deleteItem = (id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id));
+    pushAction('deleteItem', { id });
+  };
+
+  const bulkDeleteItems = async (ids: string[]) => {
+    setItems(prev => prev.filter(i => !ids.includes(i.id)));
+    for (const id of ids) {
+      await pushAction('deleteItem', { id });
+    }
+  };
+
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
-    await postAction('processTransaction', { 
-      trx: { type, items: cart, ...details }, 
+    const trxId = `TRX-${Date.now()}`;
+    const newTrx: Transaction = {
+      id: generateId(),
+      transactionId: trxId,
+      type,
+      date: details.date || new Date().toISOString(),
+      items: cart,
+      totalItems: cart.reduce((a, b) => a + (b.quantity || 0), 0),
+      ...details
+    };
+
+    // 1. Update Transaksi Lokal
+    setTransactions(prev => [newTrx, ...prev]);
+
+    // 2. Update Stok Lokal (Optimistic)
+    setItems(prev => prev.map(item => {
+      const cartMatch = cart.find(c => c.itemId === item.id);
+      if (cartMatch) {
+        const adjustment = type === 'Inbound' ? cartMatch.quantity : -cartMatch.quantity;
+        return { ...item, currentStock: item.currentStock + adjustment };
+      }
+      return item;
+    }));
+
+    // 3. Push ke Google Sheets
+    pushAction('processTransaction', { 
+      trx: newTrx, 
       items_update: cart.map(c => ({ id: c.itemId, quantity: c.quantity, type })) 
     });
+
     return true;
   };
 
-  const deleteTransaction = (id: string) => postAction('deleteTransaction', { id });
-  const addRejectLog = (log: RejectLog) => postAction('addRejectLog', log);
+  const deleteTransaction = (id: string) => {
+    setTransactions(prev => prev.filter(t => t.id !== id));
+    pushAction('deleteTransaction', { id });
+  };
+
+  const addRejectLog = (log: RejectLog) => {
+    setRejectLogs(prev => [log, ...prev]);
+    pushAction('addRejectLog', log);
+  };
 
   return (
     <AppContext.Provider value={{ 
       items, transactions, rejectMasterData, rejectLogs, 
-      addItem, addItems: () => {}, updateItem, deleteItem, bulkDeleteItems: async () => {},
-      processTransaction, deleteTransaction, updateTransaction: async () => true,
-      addRejectLog, updateRejectLog: () => {}, deleteRejectLog: () => {},
-      updateRejectMaster: () => {}, isDarkMode, toggleTheme, backendOnline, lastError,
-      refreshData: fetchData, apiUrl, updateApiUrl, testConnection, resetDatabase: async () => false
+      addItem, updateItem, deleteItem, bulkDeleteItems,
+      processTransaction, deleteTransaction, 
+      addRejectLog, isDarkMode, toggleTheme, backendOnline, lastError, lastSync,
+      refreshData: fetchData, apiUrl, updateApiUrl, testConnection
     }}>
       {children}
     </AppContext.Provider>
