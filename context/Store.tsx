@@ -77,7 +77,6 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     return [];
   };
 
-  // --- LOGIKA SYNC UTAMA (GET) ---
   const fetchData = useCallback(async () => {
     if (!apiUrl) return;
     try {
@@ -113,40 +112,31 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     }
   }, [apiUrl]);
 
-  // Initial load & Polling (Sync Otomatis setiap 30 detik)
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // --- LOGIKA AUTOMATIC PUSH (POST) ---
   const pushAction = async (action: string, data: any) => {
     if (!apiUrl) return;
     try {
-      // Background push
       fetch(apiUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, data })
       });
-      
-      // Re-validate state after push (delay for GS processing)
       setTimeout(fetchData, 2500);
     } catch (err) {
       console.error("Sync Push Error:", err);
     }
   };
 
-  // --- MUTATION WRAPPERS (Optimistic UI) ---
-
   const addItem = (newItem: Omit<Item, 'id'>) => {
     const id = generateId();
     const fullItem = { ...newItem, id } as Item;
-    // Update Lokal Instan
     setItems(prev => [...prev, fullItem]);
-    // Push ke Server
     pushAction('addItem', fullItem);
   };
 
@@ -169,6 +159,24 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
     const trxId = `TRX-${Date.now()}`;
+    
+    // Siapkan snapshot data lengkap per baris untuk dikirim ke Spreadsheet
+    const itemsUpdateWithMetadata = cart.map(cartItem => {
+      const originalItem = items.find(i => i.id === cartItem.itemId);
+      const adjustment = type === 'Inbound' ? cartItem.quantity : -cartItem.quantity;
+      const newStock = (originalItem?.currentStock || 0) + adjustment;
+
+      return {
+        ...originalItem, // Sertakan SEMUA informasi item (SKU, Nama, Harga, Lokasi, dsb)
+        transactionQty: cartItem.quantity,
+        transactionUnit: cartItem.inputUnit,
+        transactionType: type,
+        previousStock: originalItem?.currentStock || 0,
+        currentStock: newStock, // Stok TERBARU yang akan ditulis ke row master
+        date: details.date || new Date().toISOString()
+      };
+    });
+
     const newTrx: Transaction = {
       id: generateId(),
       transactionId: trxId,
@@ -184,18 +192,17 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
     // 2. Update Stok Lokal (Optimistic)
     setItems(prev => prev.map(item => {
-      const cartMatch = cart.find(c => c.itemId === item.id);
-      if (cartMatch) {
-        const adjustment = type === 'Inbound' ? cartMatch.quantity : -cartMatch.quantity;
-        return { ...item, currentStock: item.currentStock + adjustment };
+      const update = itemsUpdateWithMetadata.find(u => u.id === item.id);
+      if (update) {
+        return { ...item, currentStock: update.currentStock };
       }
       return item;
     }));
 
-    // 3. Push ke Google Sheets
+    // 3. Push ke Google Sheets dengan DATA LENGKAP PER ROW
     pushAction('processTransaction', { 
       trx: newTrx, 
-      items_update: cart.map(c => ({ id: c.itemId, quantity: c.quantity, type })) 
+      items_update: itemsUpdateWithMetadata // Mengirim baris lengkap mencakup semua info produk
     });
 
     return true;
