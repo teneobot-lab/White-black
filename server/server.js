@@ -49,7 +49,7 @@ router.get('/sync', async (req, res) => {
   let conn;
   try {
     conn = await pool.getConnection();
-    await conn.query('SET SESSION sort_buffer_size = 1048576'); // 1MB
+    await conn.query('SET SESSION sort_buffer_size = 1048576'); 
 
     const [itemsRows] = await conn.query('SELECT * FROM items');
     const [transactionsRows] = await conn.query('SELECT * FROM transactions ORDER BY date DESC LIMIT 150');
@@ -76,6 +76,7 @@ router.get('/sync', async (req, res) => {
   }
 });
 
+// ITEMS ENDPOINTS
 router.post('/items', async (req, res) => {
   try {
     const d = req.body;
@@ -88,33 +89,63 @@ router.post('/items', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.put('/items/:id', async (req, res) => {
+router.post('/items/bulk', async (req, res) => {
+  try {
+    const { items } = req.body;
+    for (const d of items) {
+      await pool.query(
+        'INSERT INTO items (id, sku, name, category, price, location, min_level, current_stock, unit, status, conversion_rate, secondary_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), category=VALUES(category), price=VALUES(price)',
+        [d.id || generateId(), d.sku, d.name, d.category, d.price || 0, d.location || '-', d.min_level || 0, d.current_stock || 0, d.unit || 'pcs', d.status || 'Active', d.conversion_rate || 1, d.secondary_unit || '']
+      );
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// REJECT ENDPOINTS
+router.post('/reject/master', async (req, res) => {
   try {
     const d = req.body;
     await pool.query(
-      'UPDATE items SET sku=?, name=?, category=?, price=?, location=?, min_level=?, current_stock=?, unit=?, status=?, conversion_rate=?, secondary_unit=? WHERE id=?',
-      [d.sku, d.name, d.category, d.price, d.location, d.min_level, d.current_stock, d.unit, d.status, d.conversionRate, d.secondaryUnit, req.params.id]
+      'INSERT INTO reject_master (id, sku, name, baseUnit, unit2, ratio2, unit3, ratio3, lastUpdated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [d.id || generateId(), d.sku, d.name, d.baseUnit, d.unit2 || null, d.ratio2 || null, d.unit3 || null, d.ratio3 || null, new Date()]
     );
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/items/:id', async (req, res) => {
+router.post('/reject/master/bulk', async (req, res) => {
   try {
-    await pool.query('DELETE FROM items WHERE id=?', [req.params.id]);
+    const { items } = req.body;
+    for (const d of items) {
+      await pool.query(
+        'INSERT INTO reject_master (id, sku, name, baseUnit, unit2, ratio2, unit3, ratio3, lastUpdated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [d.id || generateId(), d.sku, d.name, d.baseUnit, d.unit2 || null, d.ratio2 || null, d.unit3 || null, d.ratio3 || null, new Date()]
+      );
+    }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/items/bulk-delete', async (req, res) => {
+router.post('/reject/logs', async (req, res) => {
   try {
-    const { ids } = req.body;
-    if (!ids || ids.length === 0) return res.json({ success: true });
-    await pool.query('DELETE FROM items WHERE id IN (?)', [ids]);
+    const d = req.body;
+    await pool.query(
+      'INSERT INTO reject_logs (id, date, items, notes, timestamp) VALUES (?, ?, ?, ?, ?)',
+      [d.id || generateId(), d.date, JSON.stringify(d.items), d.notes, new Date()]
+    );
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.delete('/reject/logs/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM reject_logs WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// TRANSACTIONS ENDPOINT
 router.post('/transactions', async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -129,48 +160,12 @@ router.post('/transactions', async (req, res) => {
     );
     
     for (const item of items_update) {
-      const adjustment = item.type === 'Inbound' ? item.quantity : -item.quantity;
+      const adjustment = item.type === 'Inbound' ? Number(item.quantity) : -Number(item.quantity);
       await conn.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [adjustment, item.id]);
     }
     
     await conn.commit();
     res.json({ success: true, id: trxId });
-  } catch (err) {
-    await conn.rollback();
-    res.status(500).json({ error: err.message });
-  } finally { conn.release(); }
-});
-
-router.put('/transactions/:id', async (req, res) => {
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-    const [rows] = await conn.query('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
-    if (rows.length === 0) throw new Error('Transaction not found');
-    
-    const oldTrx = rows[0];
-    const oldItems = safeParse(oldTrx.items);
-    
-    for (const item of oldItems) {
-      const revertAdj = oldTrx.type === 'Inbound' ? -(item.quantity || 0) : (item.quantity || 0);
-      await conn.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [revertAdj, item.itemId]);
-    }
-
-    const newTrx = req.body;
-    const totalItems = (newTrx.items || []).reduce((a, b) => a + (Number(b.quantity) || 0), 0);
-    
-    await conn.query(
-      'UPDATE transactions SET date=?, items=?, supplierName=?, poNumber=?, riNumber=?, sjNumber=?, totalItems=?, photos=? WHERE id=?',
-      [new Date(newTrx.date), JSON.stringify(newTrx.items), newTrx.supplierName, newTrx.poNumber, newTrx.riNumber, newTrx.sjNumber, totalItems, JSON.stringify(newTrx.photos || []), req.params.id]
-    );
-
-    for (const item of (newTrx.items || [])) {
-      const applyAdj = oldTrx.type === 'Inbound' ? (item.quantity || 0) : -(item.quantity || 0);
-      await conn.query('UPDATE items SET current_stock = current_stock + ? WHERE id = ?', [applyAdj, item.itemId]);
-    }
-
-    await conn.commit();
-    res.json({ success: true });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ error: err.message });

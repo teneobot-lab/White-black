@@ -16,6 +16,8 @@ interface AppContextType {
   deleteTransaction: (id: string) => void;
   addRejectLog: (log: RejectLog) => void;
   deleteRejectLog: (id: string) => void;
+  addRejectItem: (item: Omit<RejectItem, 'id'>) => void;
+  bulkAddRejectItems: (items: Omit<RejectItem, 'id'>[]) => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
   backendOnline: boolean;
@@ -66,7 +68,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       if (res.ok) return { success: true, message: "Koneksi Google Sheets Aktif!" };
       return { success: false, message: "URL valid tapi Sheet tidak merespon." };
     } catch (e) {
-      return { success: false, message: "URL Salah atau CORS Blocked." };
+      return { success: false, message: "Cek kembali URL (Pastikan deployed sebagai Web App)." };
     }
   };
 
@@ -82,7 +84,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const fetchData = useCallback(async () => {
     if (!apiUrl) return;
     try {
-      const res = await fetch(apiUrl);
+      const res = await fetch(apiUrl); // Apps Script GET returns everything
       const data = await res.json();
 
       setItems((data.items || []).map((item: any) => ({
@@ -96,7 +98,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       setTransactions((data.transactions || []).map((t: any) => ({
         ...t,
         items: safeJsonParse(t.items),
-        photos: safeJsonParse(t.photos),
+        photos: t.photos, // Now returns a Drive string link if using the new script
       })));
       
       setRejectMasterData(data.rejectMaster || []);
@@ -116,22 +118,23 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(fetchData, 60000); // 1 minute sync for sheets
     return () => clearInterval(interval);
   }, [fetchData]);
 
   const pushAction = async (action: string, data: any) => {
     if (!apiUrl) return;
     try {
-      fetch(apiUrl, {
+      // Apps Script uses a single endpoint with POST
+      await fetch(apiUrl, {
         method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Avoid CORS preflight on Apps Script
         body: JSON.stringify({ action, data })
       });
-      setTimeout(fetchData, 2500);
+      
+      setTimeout(fetchData, 2000);
     } catch (err) {
-      console.error("Sync Push Error:", err);
+      console.error("Apps Script Sync Error:", err);
     }
   };
 
@@ -145,9 +148,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const bulkAddItems = (newItems: Omit<Item, 'id'>[]) => {
     const itemsWithIds = newItems.map(item => ({ ...item, id: generateId() } as Item));
     setItems(prev => [...prev, ...itemsWithIds]);
-    // Send bulk as a single action if backend supports it, or iterate
-    // For Spreadsheet sync, it's better to send the whole array
-    pushAction('bulkAddItem', itemsWithIds);
+    pushAction('bulkAddItem', { items: itemsWithIds });
   };
 
   const updateItem = (updatedItem: Item) => {
@@ -162,9 +163,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   const bulkDeleteItems = async (ids: string[]) => {
     setItems(prev => prev.filter(i => !ids.includes(i.id)));
-    for (const id of ids) {
-      await pushAction('deleteItem', { id });
-    }
+    await pushAction('bulkDeleteItem', { ids });
   };
 
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
@@ -176,13 +175,13 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       const newStock = (originalItem?.currentStock || 0) + adjustment;
 
       return {
-        ...originalItem,
-        transactionQty: cartItem.quantity,
-        transactionUnit: cartItem.inputUnit,
-        transactionType: type,
-        previousStock: originalItem?.currentStock || 0,
+        id: cartItem.itemId,
+        sku: cartItem.sku,
+        name: cartItem.itemName,
+        quantity: cartItem.quantity,
+        type: type,
         currentStock: newStock,
-        date: details.date || new Date().toISOString()
+        unit: cartItem.inputUnit
       };
     });
 
@@ -200,17 +199,11 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
     setItems(prev => prev.map(item => {
       const update = itemsUpdateWithMetadata.find(u => u.id === item.id);
-      if (update) {
-        return { ...item, currentStock: update.currentStock };
-      }
+      if (update) return { ...item, currentStock: update.currentStock };
       return item;
     }));
 
-    pushAction('processTransaction', { 
-      trx: newTrx, 
-      items_update: itemsUpdateWithMetadata
-    });
-
+    await pushAction('processTransaction', { trx: newTrx, items_update: itemsUpdateWithMetadata });
     return true;
   };
 
@@ -224,10 +217,25 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     pushAction('addRejectLog', log);
   };
 
-  // Fix: Missing deleteRejectLog implementation required by RejectManager
   const deleteRejectLog = (id: string) => {
     setRejectLogs(prev => prev.filter(l => l.id !== id));
     pushAction('deleteRejectLog', { id });
+  };
+
+  const addRejectItem = (item: Omit<RejectItem, 'id'>) => {
+    const fullItem = { ...item, id: generateId(), lastUpdated: new Date().toISOString() };
+    setRejectMasterData(prev => [...prev, fullItem]);
+    pushAction('addRejectItem', fullItem);
+  };
+
+  const bulkAddRejectItems = (newItems: Omit<RejectItem, 'id'>[]) => {
+    const itemsWithIds = newItems.map(item => ({ 
+      ...item, 
+      id: generateId(), 
+      lastUpdated: new Date().toISOString() 
+    }));
+    setRejectMasterData(prev => [...prev, ...itemsWithIds]);
+    pushAction('bulkAddRejectItems', { items: itemsWithIds });
   };
 
   return (
@@ -235,7 +243,8 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       items, transactions, rejectMasterData, rejectLogs, 
       addItem, bulkAddItems, updateItem, deleteItem, bulkDeleteItems,
       processTransaction, deleteTransaction, 
-      addRejectLog, deleteRejectLog, isDarkMode, toggleTheme, backendOnline, lastError, lastSync,
+      addRejectLog, deleteRejectLog, addRejectItem, bulkAddRejectItems,
+      isDarkMode, toggleTheme, backendOnline, lastError, lastSync,
       refreshData: fetchData, apiUrl, updateApiUrl, testConnection
     }}>
       {children}

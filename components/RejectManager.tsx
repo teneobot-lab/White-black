@@ -5,7 +5,7 @@ import { RejectItem, RejectLog, RejectItemDetail } from '../types';
 import { 
   Plus, Trash2, Search, X, AlertCircle, Layers, Scale, Edit3, 
   Save, Keyboard, ClipboardCheck, History, Copy, Database, 
-  Download, FileSpreadsheet, FileUp, FileDown, CheckCircle 
+  Download, FileSpreadsheet, FileUp, FileDown, CheckCircle, Package
 } from 'lucide-react';
 import useDebounce from '../hooks/useDebounce';
 import { utils, read, writeFile } from 'xlsx';
@@ -14,7 +14,7 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const RejectManager: React.FC = () => {
   const { 
-    rejectMasterData, rejectLogs, addRejectLog, deleteRejectLog, bulkAddItems // Assuming we use bulkAddItems or equivalent for reject master if added to store
+    rejectMasterData, rejectLogs, addRejectLog, deleteRejectLog, addRejectItem, bulkAddRejectItems
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<'new' | 'history' | 'master'>('new');
@@ -32,6 +32,12 @@ const RejectManager: React.FC = () => {
   const [isAutocompleteOpen, setIsAutocompleteOpen] = useState(false);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   
+  // Modal states for New Master Item
+  const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
+  const [masterFormData, setMasterFormData] = useState({
+    sku: '', name: '', baseUnit: 'Pcs', unit2: '', ratio2: ''
+  });
+
   const searchRef = useRef<HTMLDivElement>(null);
   const masterImportRef = useRef<HTMLInputElement>(null);
 
@@ -78,6 +84,24 @@ const RejectManager: React.FC = () => {
     setTimeout(() => setMessage(null), 3000);
   };
 
+  const handleManualMasterSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!masterFormData.sku || !masterFormData.name) return;
+    
+    addRejectItem({
+      sku: masterFormData.sku,
+      name: masterFormData.name,
+      baseUnit: masterFormData.baseUnit,
+      unit2: masterFormData.unit2 || undefined,
+      ratio2: Number(masterFormData.ratio2) || undefined
+    });
+    
+    setIsMasterModalOpen(false);
+    setMasterFormData({ sku: '', name: '', baseUnit: 'Pcs', unit2: '', ratio2: '' });
+    setMessage({ type: 'success', text: 'Master data baru berhasil disimpan.' });
+    setTimeout(() => setMessage(null), 3000);
+  };
+
   // --- BULK IMPORT MASTER LOGIC ---
   const handleDownloadMasterTemplate = () => {
     const headers = [
@@ -108,8 +132,7 @@ const RejectManager: React.FC = () => {
           return;
         }
 
-        const newMasterItems: RejectItem[] = data.map(row => {
-          // Logic for multiply (*) vs divide (/)
+        const newMasterItems: Omit<RejectItem, 'id'>[] = data.map(row => {
           const r2 = Number(row["Ratio 2"]) || 0;
           const op2 = String(row["Op 2 (*/)"]).trim();
           const finalR2 = op2 === '/' ? (r2 !== 0 ? 1/r2 : 0) : r2;
@@ -119,7 +142,6 @@ const RejectManager: React.FC = () => {
           const finalR3 = op3 === '/' ? (r3 !== 0 ? 1/r3 : 0) : r3;
 
           return {
-            id: generateId(),
             sku: String(row.SKU || '').trim(),
             name: String(row["Nama Barang"] || 'Unnamed').trim(),
             baseUnit: String(row["Unit Utama"] || 'Pcs').trim(),
@@ -127,20 +149,10 @@ const RejectManager: React.FC = () => {
             ratio2: r2 !== 0 ? finalR2 : undefined,
             unit3: row["Unit 3"] ? String(row["Unit 3"]) : undefined,
             ratio3: r3 !== 0 ? finalR3 : undefined,
-            lastUpdated: new Date().toISOString()
           };
         });
 
-        // Use the existing store logic to update master data
-        // For this demo, we assume rejectMasterData can be updated via a bulk method
-        // Note: we might need to add bulkAddRejectMaster to store if it doesn't exist
-        // For now, let's just log it or handle it if store allows
-        // (Assuming store has pushAction for 'addRejectItem' or similar)
-        newMasterItems.forEach(item => {
-           // Mock store push or state update
-           // addRejectItem(item); // Needs implementation in Store.tsx if not present
-        });
-
+        bulkAddRejectItems(newMasterItems);
         setMessage({ type: 'success', text: `${newMasterItems.length} Master Reject diimpor.` });
         if (masterImportRef.current) masterImportRef.current.value = '';
       } catch (err) {
@@ -150,7 +162,6 @@ const RejectManager: React.FC = () => {
     reader.readAsBinaryString(file);
   };
 
-  // --- EXPORT TO CLIPBOARD LOGIC ---
   const handleCopyToClipboard = (log: RejectLog) => {
     const d = new Date(log.date);
     const dateStr = `${String(d.getDate()).padStart(2,'0')}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getFullYear()).slice(-2)}`;
@@ -167,12 +178,9 @@ const RejectManager: React.FC = () => {
     });
   };
 
-  // --- FLATTENED EXPORT LOGIC ---
   const handleExportFlattened = () => {
     if (rejectLogs.length === 0) return;
 
-    // Get all unique dates and items
-    // Fix: Explicitly type allDates and allSkus as string[] to resolve 'unknown' index type error on line 200.
     const allDates: string[] = Array.from(new Set(rejectLogs.map(l => l.date))).sort();
     const allSkus: string[] = Array.from(new Set(rejectLogs.flatMap(l => l.items.map(it => it.sku))));
 
@@ -285,12 +293,6 @@ const RejectManager: React.FC = () => {
                                 <button onClick={() => setCartItems(cartItems.filter((_, i) => i !== idx))} className="p-2 text-slate-300 hover:text-red-500 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
                             </div>
                         ))}
-                        {cartItems.length === 0 && (
-                            <div className="flex flex-col items-center justify-center h-full py-10 opacity-30">
-                                <ClipboardCheck size={32} className="text-muted-gray mb-2" />
-                                <p className="text-[10px] font-black uppercase tracking-widest">Draft is empty</p>
-                            </div>
-                        )}
                     </div>
                     <div className="p-8 bg-surface/50 dark:bg-slate-950/50 space-y-4 border-t border-card-border dark:border-slate-800">
                         <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="System notes..." className="w-full p-4 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-2xl text-xs outline-none focus:ring-2 focus:ring-primary/20 resize-none h-20 shadow-inner font-medium" />
@@ -342,14 +344,6 @@ const RejectManager: React.FC = () => {
                                       </td>
                                   </tr>
                               ))}
-                              {sortedLogs.length === 0 && (
-                                  <tr>
-                                      <td colSpan={4} className="py-20 text-center opacity-30">
-                                          <History size={48} className="mx-auto text-muted-gray mb-4" />
-                                          <p className="text-xs font-black uppercase tracking-widest">Log Book is empty</p>
-                                      </td>
-                                  </tr>
-                              )}
                           </tbody>
                       </table>
                   </div>
@@ -372,7 +366,7 @@ const RejectManager: React.FC = () => {
                           <FileUp size={16} /> Bulk Import
                       </button>
                       <input type="file" ref={masterImportRef} onChange={handleBulkImportMaster} accept=".xlsx, .xls, .csv" className="hidden" />
-                      <button className="flex items-center justify-center gap-2 px-6 py-3 bg-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-glow-primary transition-all active:scale-95 flex-1 sm:flex-none">
+                      <button onClick={() => setIsMasterModalOpen(true)} className="flex items-center justify-center gap-2 px-6 py-3 bg-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-glow-primary transition-all active:scale-95 flex-1 sm:flex-none">
                           <Plus size={16} /> New SKU
                       </button>
                   </div>
@@ -402,6 +396,48 @@ const RejectManager: React.FC = () => {
                    </table>
               </div>
           </div>
+      )}
+
+      {/* New Master Reject Item Modal */}
+      {isMasterModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-navy/20 backdrop-blur-sm animate-in fade-in duration-300">
+           <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-soft-lg border border-card-border dark:border-slate-800 animate-in zoom-in-95 duration-200 overflow-hidden">
+             <div className="px-8 py-6 border-b border-card-border dark:border-slate-800 flex justify-between items-center bg-surface/30 dark:bg-slate-950/30">
+               <div>
+                 <h2 className="text-lg font-bold text-navy dark:text-white">Tambah SKU Reject</h2>
+                 <p className="text-[10px] font-black text-muted-gray uppercase tracking-widest mt-1">Definisi Master Asset Baru</p>
+               </div>
+               <button onClick={() => setIsMasterModalOpen(false)} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl shadow-sm transition-all"><X size={18} /></button>
+             </div>
+             
+             <form onSubmit={handleManualMasterSubmit} className="p-8 space-y-6">
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-widest ml-1">SKU Identifier</label>
+                    <input required type="text" value={masterFormData.sku} onChange={e => setMasterFormData({...masterFormData, sku: e.target.value})} className="w-full px-4 py-3 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Contoh: R-001" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-widest ml-1">Nama Barang</label>
+                    <input required type="text" value={masterFormData.name} onChange={e => setMasterFormData({...masterFormData, name: e.target.value})} className="w-full px-4 py-3 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Kaca Depan Mobil..." />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-muted-gray uppercase tracking-widest ml-1">Satuan Dasar</label>
+                      <input type="text" value={masterFormData.baseUnit} onChange={e => setMasterFormData({...masterFormData, baseUnit: e.target.value})} className="w-full px-4 py-3 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-muted-gray uppercase tracking-widest ml-1">Unit 2 (Opt)</label>
+                      <input type="text" value={masterFormData.unit2} onChange={e => setMasterFormData({...masterFormData, unit2: e.target.value})} className="w-full px-4 py-3 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Box" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-6 border-t border-card-border dark:border-slate-800">
+                  <button type="button" onClick={() => setIsMasterModalOpen(false)} className="px-6 py-2.5 font-black text-[10px] text-muted-gray uppercase tracking-widest">Batal</button>
+                  <button type="submit" className="px-8 py-2.5 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-glow-primary active:scale-95">Simpan SKU</button>
+                </div>
+             </form>
+           </div>
+        </div>
       )}
 
       {message && (
