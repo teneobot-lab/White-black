@@ -2,45 +2,60 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../context/Store';
 import { Item, ItemStatus } from '../types';
-import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle, X, Package } from 'lucide-react';
-import { read, utils, writeFile } from 'xlsx';
+import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle, X, Package, Layers, Scale, Info } from 'lucide-react';
 
 const Inventory: React.FC = () => {
-  const { items, addItem, addItems, updateItem, deleteItem, bulkDeleteItems } = useAppStore();
+  const { items, addItem, updateItem, deleteItem, bulkDeleteItems } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
-  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchTerm);
-      setSelectedIds(new Set());
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
-
-  const [formData, setFormData] = useState<Partial<Item>>({
-    sku: '', name: '', category: '', price: 0, location: '', minLevel: 0, currentStock: 0, unit: 'pcs', status: 'Active', conversionRate: 1, secondaryUnit: ''
+  // State Form dengan nilai default yang pasti (Zero Undefined)
+  const [formData, setFormData] = useState<Item>({
+    id: '',
+    sku: '',
+    name: '',
+    category: '',
+    price: 0,
+    location: '-',
+    minLevel: 0,
+    currentStock: 0,
+    unit: 'Pcs',
+    status: 'Active',
+    conversionRate: 1,
+    secondaryUnit: ''
   });
 
   const filteredItems = items.filter(item => 
-    item.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-    item.sku.toLowerCase().includes(debouncedSearch.toLowerCase())
+    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleOpenModal = (item?: Item) => {
     if (item) {
       setEditingItem(item);
-      setFormData(item);
+      setFormData({
+        ...item,
+        conversionRate: item.conversionRate || 1,
+        secondaryUnit: item.secondaryUnit || ''
+      });
     } else {
       setEditingItem(null);
       setFormData({
-        sku: '', name: '', category: '', price: 0, location: '', minLevel: 0, currentStock: 0, unit: 'pcs', status: 'Active', conversionRate: 1, secondaryUnit: ''
+        id: '',
+        sku: '',
+        name: '',
+        category: '',
+        price: 0,
+        location: '-',
+        minLevel: 0,
+        currentStock: 0,
+        unit: 'Pcs',
+        status: 'Active',
+        conversionRate: 1,
+        secondaryUnit: ''
       });
     }
     setIsModalOpen(true);
@@ -49,9 +64,9 @@ const Inventory: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingItem) {
-      updateItem({ ...formData, id: editingItem.id } as Item);
+      updateItem(formData);
     } else {
-      addItem(formData as Omit<Item, 'id'>);
+      addItem(formData);
     }
     setIsModalOpen(false);
   };
@@ -70,58 +85,77 @@ const Inventory: React.FC = () => {
     setSelectedIds(next);
   };
 
+  // Helper untuk tampilan stok konversi
+  const renderStockInfo = (item: Item) => {
+    if (item.secondaryUnit && item.conversionRate && item.conversionRate > 1) {
+      const secondaryQty = (item.currentStock / item.conversionRate).toFixed(2).replace(/\.00$/, '');
+      return (
+        <div className="flex flex-col items-center">
+          <span className={`text-sm font-black ${item.currentStock <= item.minLevel ? 'text-red-500' : 'text-navy dark:text-white'}`}>
+            {item.currentStock} <span className="text-[10px] font-bold text-slate-400">{item.unit}</span>
+          </span>
+          <span className="text-[9px] font-bold text-primary uppercase tracking-tighter bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded mt-0.5">
+            ≈ {secondaryQty} {item.secondaryUnit}
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col items-center">
+        <span className={`text-sm font-black ${item.currentStock <= item.minLevel ? 'text-red-500' : 'text-navy dark:text-white'}`}>
+          {item.currentStock}
+        </span>
+        <span className="text-[10px] font-bold text-muted-gray uppercase">{item.unit}</span>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-8 pb-10 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
         <div>
-          <h1 className="text-2xl font-bold text-navy dark:text-white tracking-tight">Catalog</h1>
-          <p className="text-sm text-muted-gray font-medium">Manage and track your warehouse SKUs.</p>
+          <h1 className="text-2xl font-bold text-navy dark:text-white tracking-tight">Katalog Barang</h1>
+          <p className="text-sm text-muted-gray font-medium">Manajemen SKU dan Konversi Satuan Enterprise.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {selectedIds.size > 0 && (
             <button 
-              onClick={() => { if(confirm(`Delete ${selectedIds.size} items?`)) bulkDeleteItems(Array.from(selectedIds)); setSelectedIds(new Set()); }}
+              onClick={() => { if(confirm(`Hapus ${selectedIds.size} item?`)) bulkDeleteItems(Array.from(selectedIds)); setSelectedIds(new Set()); }}
               className="bg-red-50 text-red-600 border border-red-100 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-red-100 transition-all flex items-center gap-2 shadow-soft animate-in zoom-in"
             >
-              <Trash2 className="w-4 h-4" /> Delete {selectedIds.size}
+              <Trash2 className="w-4 h-4" /> Hapus {selectedIds.size}
             </button>
           )}
           <button 
             onClick={() => handleOpenModal()}
             className="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-600 transition-all flex items-center gap-2 shadow-glow-primary active:scale-95"
           >
-            <Plus className="w-4 h-4" /> Add Item
+            <Plus className="w-4 h-4" /> Tambah Barang
           </button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-card-border dark:border-slate-800 shadow-soft flex flex-col sm:flex-row gap-4">
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-card-border dark:border-slate-800 shadow-soft flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1 group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" />
           <input 
             type="text" 
-            placeholder="Search SKU or name..." 
-            className="w-full pl-11 pr-4 py-2.5 bg-surface dark:bg-slate-950 border border-transparent focus:border-primary/20 focus:ring-4 focus:ring-primary/5 rounded-2xl text-sm outline-none transition-all"
+            placeholder="Cari SKU atau nama barang..." 
+            className="w-full pl-11 pr-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 focus:border-primary/50 rounded-xl text-sm outline-none transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex gap-2">
-           <button className="flex items-center gap-2 px-5 py-2.5 border border-card-border dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl text-xs font-bold text-navy dark:text-white hover:bg-surface transition-all shadow-soft">
-              <Filter className="w-4 h-4 text-primary" /> Filter
-           </button>
-           <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-5 py-2.5 border border-card-border dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl text-xs font-bold text-navy dark:text-white hover:bg-surface transition-all shadow-soft">
-              <Upload className="w-4 h-4 text-secondary" /> Import
-              <input ref={fileInputRef} type="file" className="hidden" />
-           </button>
-        </div>
+        <button className="flex items-center gap-2 px-5 py-2.5 border border-card-border dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-xs font-bold text-navy dark:text-white hover:bg-surface transition-all shadow-soft">
+           <Filter className="w-4 h-4 text-primary" /> Filter
+        </button>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-[32px] border border-card-border dark:border-slate-800 shadow-soft overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-card-border dark:border-slate-800 shadow-soft overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-card-border dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              <tr className="border-b border-card-border dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-surface/30 dark:bg-slate-950/30">
                 <th className="px-8 py-5 w-10">
                   <input 
                     type="checkbox" 
@@ -130,12 +164,12 @@ const Inventory: React.FC = () => {
                     onChange={handleToggleSelectAll}
                   />
                 </th>
-                <th className="px-4 py-5">Product Identity</th>
-                <th className="px-4 py-5">Category</th>
-                <th className="px-4 py-5 text-right">Price</th>
-                <th className="px-4 py-5 text-center">Stock Level</th>
+                <th className="px-4 py-5">Informasi Produk</th>
+                <th className="px-4 py-5">Kategori</th>
+                <th className="px-4 py-5 text-right">Harga Beli</th>
+                <th className="px-4 py-5 text-center">Stok Saat Ini</th>
                 <th className="px-4 py-5 text-center">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-8 py-5 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
@@ -152,87 +186,136 @@ const Inventory: React.FC = () => {
                   <td className="px-4 py-5">
                     <div className="flex flex-col">
                       <span className="font-bold text-sm text-navy dark:text-white leading-none">{item.name}</span>
-                      <span className="text-[10px] font-bold text-muted-gray uppercase tracking-wider mt-1.5">{item.sku}</span>
+                      <span className="text-[10px] font-bold text-primary uppercase tracking-wider mt-1.5">{item.sku}</span>
                     </div>
                   </td>
                   <td className="px-4 py-5">
-                    <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full text-[10px] font-bold uppercase tracking-wider">{item.category}</span>
+                    <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-lg text-[10px] font-bold uppercase tracking-wider">{item.category || 'UMUM'}</span>
                   </td>
                   <td className="px-4 py-5 text-right font-bold text-sm text-navy dark:text-white">
                     Rp {item.price.toLocaleString('id-ID')}
                   </td>
                   <td className="px-4 py-5 text-center">
-                    <div className="flex flex-col items-center">
-                      <span className={`text-sm font-black ${item.currentStock <= item.minLevel ? 'text-red-500' : 'text-navy dark:text-white'}`}>
-                        {item.currentStock}
-                      </span>
-                      <span className="text-[10px] font-bold text-muted-gray uppercase">{item.unit}</span>
-                    </div>
+                    {renderStockInfo(item)}
                   </td>
                   <td className="px-4 py-5 text-center">
-                    <div className={`w-2.5 h-2.5 rounded-full mx-auto ${item.status === 'Active' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-slate-300'}`} />
+                    <div className={`w-2 h-2 rounded-full mx-auto ${item.status === 'Active' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-slate-300'}`} />
                   </td>
                   <td className="px-8 py-5 text-right">
                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
                       <button onClick={() => handleOpenModal(item)} className="p-2 hover:bg-primary/10 rounded-xl text-primary"><Edit2 size={16} /></button>
-                      <button onClick={() => { if(confirm('Delete SKU?')) deleteItem(item.id); }} className="p-2 hover:bg-red-50 rounded-xl text-red-500"><Trash2 size={16} /></button>
+                      <button onClick={() => { if(confirm('Hapus SKU?')) deleteItem(item.id); }} className="p-2 hover:bg-red-50 rounded-xl text-red-500"><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {filteredItems.length === 0 && (
-            <div className="py-20 text-center flex flex-col items-center opacity-30">
-               <Package size={48} className="text-muted-gray mb-4" />
-               <p className="text-xs font-bold uppercase tracking-widest">No matching records</p>
-            </div>
-          )}
         </div>
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-navy/20 backdrop-blur-xl animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[32px] shadow-soft-lg overflow-hidden border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-200">
-            <div className="px-10 py-8 border-b border-card-border dark:border-slate-800 flex justify-between items-center">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-navy/20 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-soft-lg overflow-hidden border border-card-border dark:border-slate-800 animate-in zoom-in-95 duration-200">
+            <div className="px-8 py-6 border-b border-card-border dark:border-slate-800 flex justify-between items-center bg-surface/30 dark:bg-slate-950/30">
               <div>
-                 <h2 className="text-2xl font-bold text-navy dark:text-white">{editingItem ? 'Edit Product' : 'Create New SKU'}</h2>
-                 <p className="text-xs font-medium text-muted-gray mt-1">Fill in the identity details for this item.</p>
+                 <h2 className="text-xl font-bold text-navy dark:text-white">{editingItem ? 'Edit Produk' : 'Baru (SKU)'}</h2>
+                 <p className="text-[10px] font-black text-muted-gray uppercase tracking-widest mt-1">Informasi Detail Inventaris</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="p-3 hover:bg-surface dark:hover:bg-slate-800 rounded-2xl transition-all">
+              <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all shadow-sm">
                 <X size={20} className="text-muted-gray" />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-10 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">SKU Identity</label>
-                  <input required type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
+            <form onSubmit={handleSubmit} className="p-8 space-y-8 max-h-[80vh] overflow-y-auto custom-scrollbar">
+              {/* Seksi 1: Identitas */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-primary uppercase tracking-widest flex items-center gap-2">
+                  <Package size={14} /> Informasi Dasar
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Kode SKU</label>
+                    <input required type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Nama Barang</label>
+                    <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Kategori</label>
+                    <input type="text" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Harga Beli (Rp)</label>
+                    <input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-bold" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">Product Name</label>
-                  <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
+              </div>
+
+              {/* Seksi 2: Satuan & Konversi */}
+              <div className="space-y-4 pt-4 border-t border-card-border dark:border-slate-800">
+                <h4 className="text-[10px] font-black text-secondary uppercase tracking-widest flex items-center gap-2">
+                  <Scale size={14} /> Satuan & Konversi
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Satuan Dasar</label>
+                    <input required type="text" value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Satuan Sekunder (Opsional)</label>
+                    <input type="text" value={formData.secondaryUnit} onChange={e => setFormData({...formData, secondaryUnit: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Rasio (Per Satuan Sekunder)</label>
+                    <input type="number" value={formData.conversionRate} onChange={e => setFormData({...formData, conversionRate: Math.max(1, Number(e.target.value))})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-bold" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">Unit Price (Rp)</label>
-                  <input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
+                {formData.secondaryUnit && formData.conversionRate && formData.conversionRate > 1 && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/20 rounded-xl flex items-center gap-3">
+                    <Info size={14} className="text-primary" />
+                    <p className="text-[10px] font-bold text-primary uppercase">Rumus: 1 {formData.secondaryUnit} = {formData.conversionRate} {formData.unit}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Seksi 3: Stok & Kontrol */}
+              <div className="space-y-4 pt-4 border-t border-card-border dark:border-slate-800">
+                <h4 className="text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-2">
+                  <Layers size={14} /> Kontrol Stok
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Stok Dasar Saat Ini</label>
+                    <input required type="number" value={formData.currentStock} onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-black text-navy dark:text-white" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Min. Stok (Alert)</label>
+                    <input required type="number" value={formData.minLevel} onChange={e => setFormData({...formData, minLevel: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Lokasi Rak</label>
+                    <input type="text" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-muted-gray uppercase tracking-widest ml-1">Current Stock</label>
-                  <input required type="number" value={formData.currentStock} onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" />
-                </div>
+
+                {formData.secondaryUnit && formData.conversionRate && formData.conversionRate > 1 && (
+                  <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-surface/50 dark:bg-slate-950/50 p-3 rounded-xl border border-dashed border-card-border dark:border-slate-800">
+                    Kalkulasi Sekunder: <span className="text-primary">{(formData.currentStock / formData.conversionRate).toFixed(2)} {formData.secondaryUnit}</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-3 pt-4">
-                 <input type="checkbox" id="status" className="w-5 h-5 rounded border-card-border text-primary focus:ring-primary/30" checked={formData.status === 'Active'} onChange={e => setFormData({...formData, status: e.target.checked ? 'Active' : 'Inactive'})} />
-                 <label htmlFor="status" className="text-sm font-bold text-navy dark:text-white">Active Product</label>
+                 <input type="checkbox" id="status" className="w-4 h-4 rounded border-card-border text-primary focus:ring-primary/30" checked={formData.status === 'Active'} onChange={e => setFormData({...formData, status: e.target.checked ? 'Active' : 'Inactive'})} />
+                 <label htmlFor="status" className="text-xs font-bold text-navy dark:text-white uppercase tracking-tight">Barang Aktif (Dapat digunakan dalam transaksi)</label>
               </div>
 
-              <div className="flex justify-end gap-4 pt-6">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 font-bold text-muted-gray hover:text-navy transition-all">Discard</button>
-                <button type="submit" className="px-10 py-3 bg-primary text-white rounded-2xl font-bold shadow-glow-primary hover:bg-blue-600 transition-all active:scale-95">
-                  {editingItem ? 'Save Changes' : 'Create Product'}
+              <div className="flex justify-end gap-3 pt-6 border-t border-card-border dark:border-slate-800">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 font-black text-[10px] text-muted-gray hover:text-navy uppercase tracking-widest transition-all">Batal</button>
+                <button type="submit" className="px-10 py-2.5 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-glow-primary hover:bg-blue-600 transition-all active:scale-95">
+                  Simpan Data
                 </button>
               </div>
             </form>
