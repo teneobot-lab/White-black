@@ -2,15 +2,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../context/Store';
 import { Item, ItemStatus } from '../types';
-import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle, X, Package, Layers, Scale, Info } from 'lucide-react';
+import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle, X, Package, Layers, Scale, Info, Download } from 'lucide-react';
+import { utils, read, writeFile } from 'xlsx';
 
 const Inventory: React.FC = () => {
-  const { items, addItem, updateItem, deleteItem, bulkDeleteItems } = useAppStore();
+  const { items, addItem, bulkAddItems, updateItem, deleteItem, bulkDeleteItems } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [importStatus, setImportStatus] = useState<{message: string, type: 'success'|'error'} | null>(null);
 
   // State Form dengan nilai default yang pasti (Zero Undefined)
   const [formData, setFormData] = useState<Item>({
@@ -85,6 +87,62 @@ const Inventory: React.FC = () => {
     setSelectedIds(next);
   };
 
+  // --- LOGIKA BULK IMPORT ---
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      ["SKU", "Name", "Category", "Price", "Location", "Min Level", "Current Stock", "Unit", "Secondary Unit", "Conversion Rate"],
+      ["SKU001", "Contoh Barang A", "Elektronik", 50000, "Rak A1", 10, 100, "Pcs", "Box", 12]
+    ];
+    const ws = utils.aoa_to_sheet(headers);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Master Template");
+    writeFile(wb, "Jupiter_Inventory_Template.xlsx");
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const bstr = event.target?.result;
+        const wb = read(bstr, { type: 'binary' });
+        const wsName = wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        const data = utils.sheet_to_json(ws);
+
+        if (data.length === 0) {
+          setImportStatus({ message: "File kosong atau format salah.", type: 'error' });
+          return;
+        }
+
+        const newItems: Omit<Item, 'id'>[] = data.map((row: any) => ({
+          sku: String(row.SKU || `SKU-${Math.floor(Math.random()*10000)}`),
+          name: String(row.Name || 'Tanpa Nama'),
+          category: String(row.Category || 'General'),
+          price: Number(row.Price) || 0,
+          location: String(row.Location || '-'),
+          minLevel: Number(row["Min Level"]) || 0,
+          currentStock: Number(row["Current Stock"]) || 0,
+          unit: String(row.Unit || 'Pcs'),
+          status: 'Active' as ItemStatus,
+          conversionRate: Number(row["Conversion Rate"]) || 1,
+          secondaryUnit: String(row["Secondary Unit"] || '')
+        }));
+
+        bulkAddItems(newItems);
+        setImportStatus({ message: `Berhasil mengimpor ${newItems.length} item.`, type: 'success' });
+        setTimeout(() => setImportStatus(null), 3000);
+      } catch (err) {
+        setImportStatus({ message: "Gagal memproses file. Pastikan format benar.", type: 'error' });
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   // Helper untuk tampilan stok konversi
   const renderStockInfo = (item: Item) => {
     if (item.secondaryUnit && item.conversionRate && item.conversionRate > 1) {
@@ -126,6 +184,22 @@ const Inventory: React.FC = () => {
               <Trash2 className="w-4 h-4" /> Hapus {selectedIds.size}
             </button>
           )}
+          
+          <button 
+            onClick={handleDownloadTemplate}
+            className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 text-navy dark:text-white rounded-xl text-xs font-bold shadow-soft hover:bg-surface transition-all flex items-center gap-2 active:scale-95"
+          >
+            <FileDown size={16} className="text-primary" /> Template
+          </button>
+
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 text-navy dark:text-white rounded-xl text-xs font-bold shadow-soft hover:bg-surface transition-all flex items-center gap-2 active:scale-95"
+          >
+            <Upload size={16} className="text-secondary" /> Import Data
+          </button>
+          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls, .csv" className="hidden" />
+
           <button 
             onClick={() => handleOpenModal()}
             className="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-600 transition-all flex items-center gap-2 shadow-glow-primary active:scale-95"
@@ -134,6 +208,16 @@ const Inventory: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {importStatus && (
+        <div className={`p-4 rounded-2xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 border ${
+          importStatus.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-700'
+        }`}>
+          {importStatus.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+          <span className="text-xs font-bold">{importStatus.message}</span>
+          <button onClick={() => setImportStatus(null)} className="ml-auto"><X size={14} /></button>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-card-border dark:border-slate-800 shadow-soft flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1 group">

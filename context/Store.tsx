@@ -8,6 +8,7 @@ interface AppContextType {
   rejectMasterData: RejectItem[];
   rejectLogs: RejectLog[];
   addItem: (item: Omit<Item, 'id'>) => void;
+  bulkAddItems: (items: Omit<Item, 'id'>[]) => void;
   updateItem: (item: Item) => void;
   deleteItem: (id: string) => void;
   bulkDeleteItems: (ids: string[]) => Promise<void>;
@@ -140,6 +141,14 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     pushAction('addItem', fullItem);
   };
 
+  const bulkAddItems = (newItems: Omit<Item, 'id'>[]) => {
+    const itemsWithIds = newItems.map(item => ({ ...item, id: generateId() } as Item));
+    setItems(prev => [...prev, ...itemsWithIds]);
+    // Send bulk as a single action if backend supports it, or iterate
+    // For Spreadsheet sync, it's better to send the whole array
+    pushAction('bulkAddItem', itemsWithIds);
+  };
+
   const updateItem = (updatedItem: Item) => {
     setItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
     pushAction('updateItem', updatedItem);
@@ -160,19 +169,18 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const processTransaction = async (type: TransactionType, cart: CartItem[], details: any): Promise<boolean> => {
     const trxId = `TRX-${Date.now()}`;
     
-    // Siapkan snapshot data lengkap per baris untuk dikirim ke Spreadsheet
     const itemsUpdateWithMetadata = cart.map(cartItem => {
       const originalItem = items.find(i => i.id === cartItem.itemId);
       const adjustment = type === 'Inbound' ? cartItem.quantity : -cartItem.quantity;
       const newStock = (originalItem?.currentStock || 0) + adjustment;
 
       return {
-        ...originalItem, // Sertakan SEMUA informasi item (SKU, Nama, Harga, Lokasi, dsb)
+        ...originalItem,
         transactionQty: cartItem.quantity,
         transactionUnit: cartItem.inputUnit,
         transactionType: type,
         previousStock: originalItem?.currentStock || 0,
-        currentStock: newStock, // Stok TERBARU yang akan ditulis ke row master
+        currentStock: newStock,
         date: details.date || new Date().toISOString()
       };
     });
@@ -187,10 +195,8 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       ...details
     };
 
-    // 1. Update Transaksi Lokal
     setTransactions(prev => [newTrx, ...prev]);
 
-    // 2. Update Stok Lokal (Optimistic)
     setItems(prev => prev.map(item => {
       const update = itemsUpdateWithMetadata.find(u => u.id === item.id);
       if (update) {
@@ -199,10 +205,9 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       return item;
     }));
 
-    // 3. Push ke Google Sheets dengan DATA LENGKAP PER ROW
     pushAction('processTransaction', { 
       trx: newTrx, 
-      items_update: itemsUpdateWithMetadata // Mengirim baris lengkap mencakup semua info produk
+      items_update: itemsUpdateWithMetadata
     });
 
     return true;
@@ -221,7 +226,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   return (
     <AppContext.Provider value={{ 
       items, transactions, rejectMasterData, rejectLogs, 
-      addItem, updateItem, deleteItem, bulkDeleteItems,
+      addItem, bulkAddItems, updateItem, deleteItem, bulkDeleteItems,
       processTransaction, deleteTransaction, 
       addRejectLog, isDarkMode, toggleTheme, backendOnline, lastError, lastSync,
       refreshData: fetchData, apiUrl, updateApiUrl, testConnection
