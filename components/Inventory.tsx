@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../context/Store';
 import { Item, ItemStatus } from '../types';
-import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle, X, Package, Layers, Scale, Info, Download } from 'lucide-react';
+import { Search, Plus, Filter, Edit2, Trash2, Upload, FileDown, CheckCircle, AlertCircle, X, Package, Layers, Scale, Info } from 'lucide-react';
 import { utils, read, writeFile } from 'xlsx';
 
 const Inventory: React.FC = () => {
@@ -14,19 +14,18 @@ const Inventory: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [importStatus, setImportStatus] = useState<{message: string, type: 'success'|'error'} | null>(null);
 
-  // State Form dengan nilai default yang pasti (Zero Undefined)
-  const [formData, setFormData] = useState<Item>({
-    id: '',
+  // State Form dengan nilai awal undefined agar kolom terlihat kosong (Clean UI)
+  const [formData, setFormData] = useState<any>({
     sku: '',
     name: '',
     category: '',
-    price: 0,
-    location: '-',
-    minLevel: 0,
-    currentStock: 0,
+    price: undefined,
+    location: '',
+    minLevel: undefined,
+    currentStock: undefined,
     unit: 'Pcs',
     status: 'Active',
-    conversionRate: 1,
+    conversionRate: undefined,
     secondaryUnit: ''
   });
 
@@ -40,23 +39,25 @@ const Inventory: React.FC = () => {
       setEditingItem(item);
       setFormData({
         ...item,
-        conversionRate: item.conversionRate || 1,
+        price: item.price || undefined,
+        minLevel: item.minLevel === 0 ? 0 : (item.minLevel || undefined),
+        currentStock: item.currentStock === 0 ? 0 : (item.currentStock || undefined),
+        conversionRate: item.conversionRate || undefined,
         secondaryUnit: item.secondaryUnit || ''
       });
     } else {
       setEditingItem(null);
       setFormData({
-        id: '',
         sku: '',
         name: '',
         category: '',
-        price: 0,
-        location: '-',
-        minLevel: 0,
-        currentStock: 0,
+        price: undefined,
+        location: '',
+        minLevel: undefined,
+        currentStock: undefined,
         unit: 'Pcs',
         status: 'Active',
-        conversionRate: 1,
+        conversionRate: undefined,
         secondaryUnit: ''
       });
     }
@@ -65,10 +66,18 @@ const Inventory: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const payload = {
+      ...formData,
+      price: Number(formData.price) || 0,
+      minLevel: Number(formData.minLevel) || 0,
+      currentStock: Number(formData.currentStock) || 0,
+      conversionRate: Number(formData.conversionRate) || 1,
+    };
+
     if (editingItem) {
-      updateItem(formData);
+      updateItem({ ...payload, id: editingItem.id });
     } else {
-      addItem(formData);
+      addItem(payload);
     }
     setIsModalOpen(false);
   };
@@ -86,8 +95,6 @@ const Inventory: React.FC = () => {
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelectedIds(next);
   };
-
-  // --- LOGIKA BULK IMPORT ---
 
   const handleDownloadTemplate = () => {
     const headers = [
@@ -143,7 +150,6 @@ const Inventory: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Helper untuk tampilan stok konversi
   const renderStockInfo = (item: Item) => {
     if (item.secondaryUnit && item.conversionRate && item.conversionRate > 1) {
       const secondaryQty = (item.currentStock / item.conversionRate).toFixed(2).replace(/\.00$/, '');
@@ -185,50 +191,25 @@ const Inventory: React.FC = () => {
             </button>
           )}
           
-          <button 
-            onClick={handleDownloadTemplate}
-            className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 text-navy dark:text-white rounded-xl text-xs font-bold shadow-soft hover:bg-surface transition-all flex items-center gap-2 active:scale-95"
-          >
+          <button onClick={handleDownloadTemplate} className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 text-navy dark:text-white rounded-xl text-xs font-bold shadow-soft hover:bg-surface transition-all flex items-center gap-2 active:scale-95">
             <FileDown size={16} className="text-primary" /> Template
           </button>
 
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 text-navy dark:text-white rounded-xl text-xs font-bold shadow-soft hover:bg-surface transition-all flex items-center gap-2 active:scale-95"
-          >
+          <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 text-navy dark:text-white rounded-xl text-xs font-bold shadow-soft hover:bg-surface transition-all flex items-center gap-2 active:scale-95">
             <Upload size={16} className="text-secondary" /> Import Data
           </button>
           <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls, .csv" className="hidden" />
 
-          <button 
-            onClick={() => handleOpenModal()}
-            className="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-600 transition-all flex items-center gap-2 shadow-glow-primary active:scale-95"
-          >
+          <button onClick={() => handleOpenModal()} className="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-600 transition-all flex items-center gap-2 shadow-glow-primary active:scale-95">
             <Plus className="w-4 h-4" /> Tambah Barang
           </button>
         </div>
       </div>
 
-      {importStatus && (
-        <div className={`p-4 rounded-2xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-300 border ${
-          importStatus.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-700'
-        }`}>
-          {importStatus.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
-          <span className="text-xs font-bold">{importStatus.message}</span>
-          <button onClick={() => setImportStatus(null)} className="ml-auto"><X size={14} /></button>
-        </div>
-      )}
-
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-card-border dark:border-slate-800 shadow-soft flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1 group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" />
-          <input 
-            type="text" 
-            placeholder="Cari SKU atau nama barang..." 
-            className="w-full pl-11 pr-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 focus:border-primary/50 rounded-xl text-sm outline-none transition-all"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          <input type="text" placeholder="Cari SKU atau nama barang..." className="w-full pl-11 pr-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 focus:border-primary/50 rounded-xl text-sm outline-none transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
         <button className="flex items-center gap-2 px-5 py-2.5 border border-card-border dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-xs font-bold text-navy dark:text-white hover:bg-surface transition-all shadow-soft">
            <Filter className="w-4 h-4 text-primary" /> Filter
@@ -241,12 +222,7 @@ const Inventory: React.FC = () => {
             <thead>
               <tr className="border-b border-card-border dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-surface/30 dark:bg-slate-950/30">
                 <th className="px-8 py-5 w-10">
-                  <input 
-                    type="checkbox" 
-                    className="rounded border-card-border text-primary focus:ring-primary/30 w-4 h-4"
-                    checked={filteredItems.length > 0 && selectedIds.size === filteredItems.length}
-                    onChange={handleToggleSelectAll}
-                  />
+                  <input type="checkbox" className="rounded border-card-border text-primary focus:ring-primary/30 w-4 h-4" checked={filteredItems.length > 0 && selectedIds.size === filteredItems.length} onChange={handleToggleSelectAll} />
                 </th>
                 <th className="px-4 py-5">Informasi Produk</th>
                 <th className="px-4 py-5">Kategori</th>
@@ -260,12 +236,7 @@ const Inventory: React.FC = () => {
               {filteredItems.map((item) => (
                 <tr key={item.id} className="group hover:bg-surface/50 dark:hover:bg-slate-800/30 transition-all duration-200">
                   <td className="px-8 py-5">
-                    <input 
-                      type="checkbox" 
-                      className="rounded border-card-border text-primary focus:ring-primary/30 w-4 h-4"
-                      checked={selectedIds.has(item.id)}
-                      onChange={() => handleToggleSelectItem(item.id)}
-                    />
+                    <input type="checkbox" className="rounded border-card-border text-primary focus:ring-primary/30 w-4 h-4" checked={selectedIds.has(item.id)} onChange={() => handleToggleSelectItem(item.id)} />
                   </td>
                   <td className="px-4 py-5">
                     <div className="flex flex-col">
@@ -276,12 +247,8 @@ const Inventory: React.FC = () => {
                   <td className="px-4 py-5">
                     <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-lg text-[10px] font-bold uppercase tracking-wider">{item.category || 'UMUM'}</span>
                   </td>
-                  <td className="px-4 py-5 text-right font-bold text-sm text-navy dark:text-white">
-                    Rp {item.price.toLocaleString('id-ID')}
-                  </td>
-                  <td className="px-4 py-5 text-center">
-                    {renderStockInfo(item)}
-                  </td>
+                  <td className="px-4 py-5 text-right font-bold text-sm text-navy dark:text-white">Rp {item.price.toLocaleString('id-ID')}</td>
+                  <td className="px-4 py-5 text-center">{renderStockInfo(item)}</td>
                   <td className="px-4 py-5 text-center">
                     <div className={`w-2 h-2 rounded-full mx-auto ${item.status === 'Active' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-slate-300'}`} />
                   </td>
@@ -312,83 +279,62 @@ const Inventory: React.FC = () => {
             </div>
             
             <form onSubmit={handleSubmit} className="p-8 space-y-8 max-h-[80vh] overflow-y-auto custom-scrollbar">
-              {/* Seksi 1: Identitas */}
               <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-primary uppercase tracking-widest flex items-center gap-2">
-                  <Package size={14} /> Informasi Dasar
-                </h4>
+                <h4 className="text-[10px] font-black text-primary uppercase tracking-widest flex items-center gap-2"><Package size={14} /> Informasi Dasar</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Kode SKU</label>
-                    <input required type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    <input required type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="SKU001" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Nama Barang</label>
-                    <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Masukkan nama barang..." />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Kategori</label>
-                    <input type="text" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    <input type="text" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Umum" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Harga Beli (Rp)</label>
-                    <input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-bold" />
+                    <input type="number" value={formData.price ?? ''} onChange={e => setFormData({...formData, price: e.target.value === '' ? undefined : Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-bold" placeholder="0" />
                   </div>
                 </div>
               </div>
 
-              {/* Seksi 2: Satuan & Konversi */}
               <div className="space-y-4 pt-4 border-t border-card-border dark:border-slate-800">
-                <h4 className="text-[10px] font-black text-secondary uppercase tracking-widest flex items-center gap-2">
-                  <Scale size={14} /> Satuan & Konversi
-                </h4>
+                <h4 className="text-[10px] font-black text-secondary uppercase tracking-widest flex items-center gap-2"><Scale size={14} /> Satuan & Konversi</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Satuan Dasar</label>
-                    <input required type="text" value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    <input required type="text" value={formData.unit} onChange={e => setFormData({...formData, unit: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Pcs" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Satuan Sekunder (Opsional)</label>
-                    <input type="text" value={formData.secondaryUnit} onChange={e => setFormData({...formData, secondaryUnit: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    <input type="text" value={formData.secondaryUnit} onChange={e => setFormData({...formData, secondaryUnit: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Box" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Rasio (Per Satuan Sekunder)</label>
-                    <input type="number" value={formData.conversionRate} onChange={e => setFormData({...formData, conversionRate: Math.max(1, Number(e.target.value))})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-bold" />
+                    <input type="number" value={formData.conversionRate ?? ''} onChange={e => setFormData({...formData, conversionRate: e.target.value === '' ? undefined : Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-bold" placeholder="1" />
                   </div>
                 </div>
-                {formData.secondaryUnit && formData.conversionRate && formData.conversionRate > 1 && (
-                  <div className="p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/20 rounded-xl flex items-center gap-3">
-                    <Info size={14} className="text-primary" />
-                    <p className="text-[10px] font-bold text-primary uppercase">Rumus: 1 {formData.secondaryUnit} = {formData.conversionRate} {formData.unit}</p>
-                  </div>
-                )}
               </div>
 
-              {/* Seksi 3: Stok & Kontrol */}
               <div className="space-y-4 pt-4 border-t border-card-border dark:border-slate-800">
-                <h4 className="text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-2">
-                  <Layers size={14} /> Kontrol Stok
-                </h4>
+                <h4 className="text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-2"><Layers size={14} /> Kontrol Stok</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Stok Dasar Saat Ini</label>
-                    <input required type="number" value={formData.currentStock} onChange={e => setFormData({...formData, currentStock: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-black text-navy dark:text-white" />
+                    <input type="number" value={formData.currentStock ?? ''} onChange={e => setFormData({...formData, currentStock: e.target.value === '' ? undefined : Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30 font-black text-navy dark:text-white" placeholder="0" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Min. Stok (Alert)</label>
-                    <input required type="number" value={formData.minLevel} onChange={e => setFormData({...formData, minLevel: Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    <input type="number" value={formData.minLevel ?? ''} onChange={e => setFormData({...formData, minLevel: e.target.value === '' ? undefined : Number(e.target.value)})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="0" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-muted-gray uppercase tracking-wider ml-1">Lokasi Rak</label>
-                    <input type="text" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+                    <input type="text" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="w-full px-4 py-2.5 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-xl text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Rak A1" />
                   </div>
                 </div>
-
-                {formData.secondaryUnit && formData.conversionRate && formData.conversionRate > 1 && (
-                  <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-surface/50 dark:bg-slate-950/50 p-3 rounded-xl border border-dashed border-card-border dark:border-slate-800">
-                    Kalkulasi Sekunder: <span className="text-primary">{(formData.currentStock / formData.conversionRate).toFixed(2)} {formData.secondaryUnit}</span>
-                  </div>
-                )}
               </div>
 
               <div className="flex items-center gap-3 pt-4">
@@ -398,9 +344,7 @@ const Inventory: React.FC = () => {
 
               <div className="flex justify-end gap-3 pt-6 border-t border-card-border dark:border-slate-800">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 font-black text-[10px] text-muted-gray hover:text-navy uppercase tracking-widest transition-all">Batal</button>
-                <button type="submit" className="px-10 py-2.5 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-glow-primary hover:bg-blue-600 transition-all active:scale-95">
-                  Simpan Data
-                </button>
+                <button type="submit" className="px-10 py-2.5 bg-primary text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-glow-primary hover:bg-blue-600 transition-all active:scale-95">Simpan Data</button>
               </div>
             </form>
           </div>

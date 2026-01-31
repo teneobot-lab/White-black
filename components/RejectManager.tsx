@@ -9,18 +9,15 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const RejectManager: React.FC = () => {
   const { 
-    rejectMasterData, rejectLogs, addRejectLog, deleteRejectLog, updateRejectMaster 
+    rejectMasterData, rejectLogs, addRejectLog, deleteRejectLog 
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<'new' | 'history' | 'master'>('new');
-  
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [cartItems, setCartItems] = useState<RejectItemDetail[]>([]);
   const [rejectReason, setRejectReason] = useState('Damaged');
-
   const [searchQuery, setSearchQuery] = useState('');
-  // Added masterSearch state to fix "Cannot find name 'masterSearch'" error
   const [masterSearch, setMasterSearch] = useState('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [selectedItem, setSelectedItem] = useState<RejectItem | null>(null);
@@ -81,15 +78,9 @@ const RejectManager: React.FC = () => {
           <p className="text-sm text-muted-gray font-medium mt-1">Manage damaged or returned assets effectively.</p>
         </div>
         <div className="flex space-x-6">
-          <button onClick={() => setActiveTab('new')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all ${activeTab === 'new' ? 'border-b-2 border-primary text-primary' : 'text-slate-400 hover:text-navy'}`}>
-            <ClipboardCheck size={16} /> NEW ENTRY
-          </button>
-          <button onClick={() => setActiveTab('history')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all ${activeTab === 'history' ? 'border-b-2 border-primary text-primary' : 'text-slate-400 hover:text-navy'}`}>
-            <History size={16} /> LOG BOOK
-          </button>
-          <button onClick={() => setActiveTab('master')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all ${activeTab === 'master' ? 'border-b-2 border-primary text-primary' : 'text-slate-400 hover:text-navy'}`}>
-            <Database size={16} /> MASTER DATA
-          </button>
+          <button onClick={() => setActiveTab('new')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all ${activeTab === 'new' ? 'border-b-2 border-primary text-primary' : 'text-slate-400 hover:text-navy'}`}><ClipboardCheck size={16} /> NEW ENTRY</button>
+          <button onClick={() => setActiveTab('history')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all ${activeTab === 'history' ? 'border-b-2 border-primary text-primary' : 'text-slate-400 hover:text-navy'}`}><History size={16} /> LOG BOOK</button>
+          <button onClick={() => setActiveTab('master')} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest flex items-center gap-2 transition-all ${activeTab === 'master' ? 'border-b-2 border-primary text-primary' : 'text-slate-400 hover:text-navy'}`}><Database size={16} /> MASTER DATA</button>
         </div>
       </div>
 
@@ -109,7 +100,7 @@ const RejectManager: React.FC = () => {
                         </div>
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-muted-gray uppercase tracking-widest ml-1">Core Reason</label>
-                            <input type="text" value={rejectReason} onChange={e => setRejectReason(e.target.value)} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all" placeholder="e.g. Broken Packaging" />
+                            <input type="text" value={rejectReason} onChange={e => setRejectReason(e.target.value)} className="w-full px-5 py-3 bg-surface dark:bg-slate-950 border-none rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all" placeholder="Broken Packaging" />
                         </div>
                     </div>
 
@@ -119,14 +110,7 @@ const RejectManager: React.FC = () => {
                                 <label className="text-[10px] font-black text-muted-gray uppercase tracking-widest ml-1 mb-2 block">Item Selection</label>
                                 <div className="relative group">
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-primary transition-colors" />
-                                    <input 
-                                        type="text" 
-                                        value={searchQuery} 
-                                        onFocus={() => setIsAutocompleteOpen(true)} 
-                                        onChange={(e) => setSearchQuery(e.target.value)} 
-                                        placeholder="Search master list..." 
-                                        className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-soft"
-                                    />
+                                    <input type="text" value={searchQuery} onFocus={() => setIsAutocompleteOpen(true)} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search master list..." className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-soft" />
                                 </div>
                                 {isAutocompleteOpen && filteredRejectMaster.length > 0 && searchQuery && (
                                     <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-2xl shadow-soft-lg z-50 overflow-hidden">
@@ -141,7 +125,7 @@ const RejectManager: React.FC = () => {
                             </div>
                             <div className="md:col-span-3">
                                 <label className="text-[10px] font-black text-muted-gray uppercase tracking-widest ml-1 mb-2 block">Qty</label>
-                                <input type="number" value={quantityInput ?? ''} onChange={e => setQuantityInput(Number(e.target.value))} className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-soft" placeholder="0" />
+                                <input type="number" value={quantityInput ?? ''} onChange={e => setQuantityInput(e.target.value === '' ? undefined : Number(e.target.value))} className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-soft" placeholder="0" />
                             </div>
                             <div className="md:col-span-3">
                                 <button onClick={handleAddToCart} disabled={!selectedItem || !quantityInput} className="w-full py-3.5 bg-navy dark:bg-primary text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-soft hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-30">Add Log</button>
@@ -159,15 +143,14 @@ const RejectManager: React.FC = () => {
                     </div>
                     <div className="flex-1 p-6 space-y-4 overflow-y-auto max-h-[400px]">
                         {cartItems.map((it, idx) => (
-                            <div key={idx} className="p-4 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-2xl flex justify-between items-center animate-in slide-in-from-right-4 duration-300">
+                            <div key={idx} className="p-4 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-2xl flex justify-between items-center">
                                 <div>
                                     <p className="font-bold text-sm text-navy dark:text-white truncate max-w-[150px]">{it.itemName}</p>
-                                    <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight">{it.quantity} {it.unit} &bull; {it.reason}</p>
+                                    <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight">{it.quantity} {it.unit} & bull; {it.reason}</p>
                                 </div>
                                 <button onClick={() => setCartItems(cartItems.filter((_, i) => i !== idx))} className="p-2 text-slate-300 hover:text-red-500 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all"><Trash2 size={16} /></button>
                             </div>
                         ))}
-                        {cartItems.length === 0 && <div className="py-20 text-center text-xs font-bold uppercase tracking-widest text-muted-gray opacity-30">Cart empty</div>}
                     </div>
                     <div className="p-8 bg-surface/50 dark:bg-slate-950/50 space-y-4 border-t border-card-border dark:border-slate-800">
                         <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="System notes..." className="w-full p-4 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-2xl text-xs outline-none focus:ring-2 focus:ring-primary/20 resize-none h-20 shadow-inner" />
