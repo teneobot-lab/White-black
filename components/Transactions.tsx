@@ -2,7 +2,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../context/Store';
 import { CartItem, Item } from '../types';
-import { ShoppingCart, Plus, Trash2, CheckCircle, AlertCircle, Search, ChevronDown, X, Box, Calendar, User, Hash, FileText, ArrowRight, Keyboard } from 'lucide-react';
+import { 
+  ShoppingCart, Plus, Trash2, CheckCircle, AlertCircle, 
+  Search, ChevronDown, X, Box, Calendar, User, Hash, 
+  FileText, ArrowRight, Keyboard, Camera, Image as ImageIcon, 
+  UploadCloud, FileImage
+} from 'lucide-react';
 
 const Transactions: React.FC = () => {
   const { items, processTransaction } = useAppStore();
@@ -16,6 +21,10 @@ const Transactions: React.FC = () => {
   const [quantity, setQuantity] = useState<number | undefined>(undefined); 
   const [selectedUnit, setSelectedUnit] = useState<'base' | 'secondary'>('base');
   
+  // New state for photo handling
+  const [photos, setPhotos] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [details, setDetails] = useState({ 
     supplierName: '', 
     poNumber: '', 
@@ -94,6 +103,26 @@ const Transactions: React.FC = () => {
     setTimeout(() => searchInputRef.current?.focus(), 10);
   };
 
+  // --- PHOTO HANDLING LOGIC ---
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    // Fixed: Explicitly cast each file to 'File' to avoid type inference issues with Array.from
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotos(prev => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleQtyKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -103,10 +132,18 @@ const Transactions: React.FC = () => {
 
   const handleProcess = async () => {
     if (cart.length === 0) return;
-    const success = await processTransaction(activeTab, cart, details);
+    
+    // Include photos in the transaction details
+    const finalDetails = { 
+      ...details, 
+      photos: photos // Backend AppScript akan menerima array base64 ini
+    };
+
+    const success = await processTransaction(activeTab, cart, finalDetails);
     if (success) {
       setCart([]); 
-      setMessage({ type: 'success', text: 'Transaksi berhasil diproses ke server.' });
+      setPhotos([]);
+      setMessage({ type: 'success', text: 'Transaksi & Foto berhasil diproses ke server.' });
       setTimeout(() => setMessage(null), 3000);
     }
   };
@@ -122,120 +159,209 @@ const Transactions: React.FC = () => {
           </div>
         </div>
         <div className="p-1 bg-surface dark:bg-slate-800 rounded-xl flex gap-1">
-          <button onClick={() => setActiveTab('Outbound')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'Outbound' ? 'bg-white dark:bg-slate-700 text-primary shadow-sm' : 'text-muted-gray hover:text-navy'}`}>PENGELUARAN</button>
+          <button onClick={() => { setActiveTab('Outbound'); setPhotos([]); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'Outbound' ? 'bg-white dark:bg-slate-700 text-primary shadow-sm' : 'text-muted-gray hover:text-navy'}`}>PENGELUARAN</button>
           <button onClick={() => setActiveTab('Inbound')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'Inbound' ? 'bg-white dark:bg-slate-700 text-secondary shadow-sm' : 'text-muted-gray hover:text-navy'}`}>PENERIMAAN</button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-soft border border-card-border dark:border-slate-800">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><User size={12} className="text-primary" /> {activeTab === 'Inbound' ? 'Pemasok / Vendor' : 'Penerima / Customer'}</label>
-            <input type="text" value={details.supplierName} onChange={e => setDetails({...details, supplierName: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Nama..." />
-          </div>
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><Calendar size={12} className="text-primary" /> Tanggal</label>
-            <input type="date" value={details.date} onChange={e => setDetails({...details, date: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><Hash size={12} className="text-primary" /> No. Referensi</label>
-            <input type="text" value={details.sjNumber} onChange={e => setDetails({...details, sjNumber: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="REF..." />
-          </div>
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><FileText size={12} className="text-primary" /> No. Instruksi</label>
-            <input type="text" value={details.poNumber} onChange={e => setDetails({...details, poNumber: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="PO..." />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-soft border border-card-border dark:border-slate-800 overflow-hidden">
-        <div className="p-3 bg-surface/50 dark:bg-slate-950/50 border-b border-card-border dark:border-slate-800 grid grid-cols-12 gap-3 items-end">
-          <div className="col-span-12 md:col-span-6 relative">
-            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block flex justify-between">Cari Produk <span className="flex items-center gap-1 opacity-50"><Keyboard size={10} /> Arrow & Enter</span></label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-              <input ref={searchInputRef} type="text" value={searchTerm} onKeyDown={handleSearchKeyDown} onChange={(e) => {setSearchTerm(e.target.value); setIsDropdownOpen(true);}} onFocus={() => setIsDropdownOpen(true)} className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary/20 transition-all" placeholder="Cari SKU atau nama..." />
-            </div>
-            {isDropdownOpen && searchTerm && filteredItems.length > 0 && (
-              <div className="absolute top-full left-0 right-0 z-50 bg-white dark:bg-slate-900 mt-1 rounded-lg shadow-soft-lg border border-card-border dark:border-slate-800 overflow-hidden max-h-48 overflow-y-auto">
-                {filteredItems.map((item, index) => (
-                  <button key={item.id} onClick={() => selectItem(item)} onMouseEnter={() => setActiveIndex(index)} className={`w-full text-left px-4 py-2 text-xs font-medium transition-colors border-b last:border-0 border-slate-50 dark:border-slate-800 ${activeIndex === index ? 'bg-primary/10 text-primary' : 'hover:bg-surface dark:hover:bg-slate-800'}`}>
-                    <span className="font-bold text-navy dark:text-white">{item.sku}</span> - {item.name} <span className="ml-2 text-[10px] text-muted-gray opacity-60">({item.currentStock} {item.unit})</span>
-                  </button>
-                ))}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Main Form Area */}
+        <div className="lg:col-span-8 space-y-6">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-soft border border-card-border dark:border-slate-800">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><User size={12} className="text-primary" /> {activeTab === 'Inbound' ? 'Pemasok / Vendor' : 'Penerima / Customer'}</label>
+                <input type="text" value={details.supplierName} onChange={e => setDetails({...details, supplierName: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="Nama..." />
               </div>
-            )}
-          </div>
-          <div className="col-span-4 md:col-span-2">
-            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Qty</label>
-            <input ref={qtyInputRef} type="number" value={quantity ?? ''} onKeyDown={handleQtyKeyDown} onChange={(e) => setQuantity(e.target.value === '' ? undefined : Number(e.target.value))} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold" placeholder="0" />
-          </div>
-          <div className="col-span-4 md:col-span-2">
-            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Satuan</label>
-            <div className="relative">
-              <select value={selectedUnit} onChange={(e) => setSelectedUnit(e.target.value as any)} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer">
-                <option value="base">{selectedItem?.unit || 'Pcs'}</option>
-                {selectedItem?.secondaryUnit && <option value="secondary">{selectedItem.secondaryUnit}</option>}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><Calendar size={12} className="text-primary" /> Tanggal</label>
+                <input type="date" value={details.date} onChange={e => setDetails({...details, date: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><Hash size={12} className="text-primary" /> No. Referensi</label>
+                <input type="text" value={details.sjNumber} onChange={e => setDetails({...details, sjNumber: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="REF..." />
+              </div>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-[10px] font-black text-muted-gray uppercase tracking-wider"><FileText size={12} className="text-primary" /> No. Instruksi</label>
+                <input type="text" value={details.poNumber} onChange={e => setDetails({...details, poNumber: e.target.value})} className="w-full px-3 py-2 bg-surface dark:bg-slate-950 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30" placeholder="PO..." />
+              </div>
             </div>
           </div>
-          <div className="col-span-4 md:col-span-2">
-            <button onClick={addToCart} disabled={!selectedItem || !quantity} className="w-full py-2 bg-primary text-white rounded-lg text-xs font-black shadow-sm hover:bg-blue-600 disabled:opacity-30 transition-all active:scale-95 flex items-center justify-center gap-2 uppercase"><Plus size={14} /> TAMBAH</button>
+
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-soft border border-card-border dark:border-slate-800 overflow-hidden">
+            <div className="p-3 bg-surface/50 dark:bg-slate-950/50 border-b border-card-border dark:border-slate-800 grid grid-cols-12 gap-3 items-end">
+              <div className="col-span-12 md:col-span-6 relative">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block flex justify-between">Cari Produk <span className="flex items-center gap-1 opacity-50"><Keyboard size={10} /> Arrow & Enter</span></label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <input ref={searchInputRef} type="text" value={searchTerm} onKeyDown={handleSearchKeyDown} onChange={(e) => {setSearchTerm(e.target.value); setIsDropdownOpen(true);}} onFocus={() => setIsDropdownOpen(true)} className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary/20 transition-all" placeholder="Cari SKU atau nama..." />
+                </div>
+                {isDropdownOpen && searchTerm && filteredItems.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-50 bg-white dark:bg-slate-900 mt-1 rounded-lg shadow-soft-lg border border-card-border dark:border-slate-800 overflow-hidden max-h-48 overflow-y-auto">
+                    {filteredItems.map((item, index) => (
+                      <button key={item.id} onClick={() => selectItem(item)} onMouseEnter={() => setActiveIndex(index)} className={`w-full text-left px-4 py-2 text-xs font-medium transition-colors border-b last:border-0 border-slate-50 dark:border-slate-800 ${activeIndex === index ? 'bg-primary/10 text-primary' : 'hover:bg-surface dark:hover:bg-slate-800'}`}>
+                        <span className="font-bold text-navy dark:text-white">{item.sku}</span> - {item.name} <span className="ml-2 text-[10px] text-muted-gray opacity-60">({item.currentStock} {item.unit})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="col-span-4 md:col-span-2">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Qty</label>
+                <input ref={qtyInputRef} type="number" value={quantity ?? ''} onKeyDown={handleQtyKeyDown} onChange={(e) => setQuantity(e.target.value === '' ? undefined : Number(e.target.value))} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold" placeholder="0" />
+              </div>
+              <div className="col-span-4 md:col-span-2">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Satuan</label>
+                <div className="relative">
+                  <select value={selectedUnit} onChange={(e) => setSelectedUnit(e.target.value as any)} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-card-border dark:border-slate-800 rounded-lg text-xs outline-none focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer">
+                    <option value="base">{selectedItem?.unit || 'Pcs'}</option>
+                    {selectedItem?.secondaryUnit && <option value="secondary">{selectedItem.secondaryUnit}</option>}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+              <div className="col-span-4 md:col-span-2">
+                <button onClick={addToCart} disabled={!selectedItem || !quantity} className="w-full py-2 bg-primary text-white rounded-lg text-xs font-black shadow-sm hover:bg-blue-600 disabled:opacity-30 transition-all active:scale-95 flex items-center justify-center gap-2 uppercase"><Plus size={14} /> TAMBAH</button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-surface/30 dark:bg-slate-950/30 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-card-border dark:border-slate-800">
+                    <th className="px-6 py-3 w-16 text-center">No.</th>
+                    <th className="px-4 py-3">Kode / SKU</th>
+                    <th className="px-4 py-3">Deskripsi Barang</th>
+                    <th className="px-4 py-3 text-right">Qty</th>
+                    <th className="px-4 py-3">Unit</th>
+                    <th className="px-6 py-3 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                  {cart.map((item, idx) => (
+                    <tr key={idx} className="group hover:bg-surface/50 dark:hover:bg-slate-800/20 transition-colors">
+                      <td className="px-6 py-3 text-center text-[11px] font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-4 py-3 font-mono text-xs font-bold text-primary">{item.sku}</td>
+                      <td className="px-4 py-3 text-xs font-medium text-navy dark:text-white uppercase tracking-tight">{item.itemName}</td>
+                      <td className="px-4 py-3 text-right text-xs font-black text-navy dark:text-white">{item.inputQuantity}</td>
+                      <td className="px-4 py-3 text-[10px] font-bold text-muted-gray uppercase">{item.inputUnit}</td>
+                      <td className="px-6 py-3 text-right">
+                        <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {cart.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-20 text-center opacity-30">
+                        <div className="flex flex-col items-center gap-2">
+                          <Box size={32} className="text-muted-gray" />
+                          <p className="text-[10px] font-black uppercase tracking-widest text-muted-gray">Daftar item masih kosong</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="p-6 bg-surface/30 dark:bg-slate-950/30 border-t border-card-border dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
+              <div className="flex gap-8">
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Item Unik</span>
+                  <span className="text-sm font-black text-navy dark:text-white">{cart.length} SKU</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Qty</span>
+                  <span className="text-sm font-black text-navy dark:text-white">{cart.reduce((a, b) => a + (b.inputQuantity || 0), 0)} Unit</span>
+                </div>
+              </div>
+              <button onClick={handleProcess} disabled={cart.length === 0} className={`px-12 py-3.5 rounded-2xl font-black text-[11px] text-white shadow-soft-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center gap-2 uppercase tracking-widest ${activeTab === 'Inbound' ? 'bg-secondary' : 'bg-primary'} disabled:opacity-30`}>SIMPAN TRANSAKSI <ArrowRight size={14} /></button>
+            </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-surface/30 dark:bg-slate-950/30 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-card-border dark:border-slate-800">
-                <th className="px-6 py-3 w-16 text-center">No.</th>
-                <th className="px-4 py-3">Kode / SKU</th>
-                <th className="px-4 py-3">Deskripsi Barang</th>
-                <th className="px-4 py-3 text-right">Qty</th>
-                <th className="px-4 py-3">Unit</th>
-                <th className="px-6 py-3 text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-              {cart.map((item, idx) => (
-                <tr key={idx} className="group hover:bg-surface/50 dark:hover:bg-slate-800/20 transition-colors">
-                  <td className="px-6 py-3 text-center text-[11px] font-bold text-slate-400">{idx + 1}</td>
-                  <td className="px-4 py-3 font-mono text-xs font-bold text-primary">{item.sku}</td>
-                  <td className="px-4 py-3 text-xs font-medium text-navy dark:text-white uppercase tracking-tight">{item.itemName}</td>
-                  <td className="px-4 py-3 text-right text-xs font-black text-navy dark:text-white">{item.inputQuantity}</td>
-                  <td className="px-4 py-3 text-[10px] font-bold text-muted-gray uppercase">{item.inputUnit}</td>
-                  <td className="px-6 py-3 text-right">
-                    <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
-                  </td>
-                </tr>
-              ))}
-              {cart.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center opacity-30">
-                    <div className="flex flex-col items-center gap-2">
-                      <Box size={32} className="text-muted-gray" />
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-gray">Daftar item masih kosong</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* Sidebar: Photo Upload Section (Inbound Only) */}
+        <div className="lg:col-span-4 space-y-6">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-soft border border-card-border dark:border-slate-800 p-6">
+             <div className="flex items-center justify-between mb-4">
+               <h3 className="font-bold text-navy dark:text-white flex items-center gap-2">
+                 <Camera size={18} className="text-primary" />
+                 Bukti Foto
+               </h3>
+               {activeTab === 'Inbound' && (
+                 <button 
+                   onClick={() => fileInputRef.current?.click()}
+                   className="p-2 bg-surface dark:bg-slate-800 rounded-xl hover:bg-white dark:hover:bg-slate-700 transition-all shadow-sm group"
+                 >
+                   <Plus size={16} className="text-primary group-hover:scale-125 transition-transform" />
+                 </button>
+               )}
+             </div>
 
-        <div className="p-6 bg-surface/30 dark:bg-slate-950/30 border-t border-card-border dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex gap-8">
-            <div className="flex flex-col">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Item Unik</span>
-              <span className="text-sm font-black text-navy dark:text-white">{cart.length} SKU</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Qty</span>
-              <span className="text-sm font-black text-navy dark:text-white">{cart.reduce((a, b) => a + (b.inputQuantity || 0), 0)} Unit</span>
-            </div>
+             {activeTab === 'Outbound' ? (
+               <div className="py-8 px-4 text-center bg-surface/50 dark:bg-slate-950/30 rounded-2xl border border-dashed border-card-border dark:border-slate-800">
+                 <FileImage size={32} className="mx-auto text-slate-300 mb-2" />
+                 <p className="text-[10px] font-bold text-muted-gray uppercase tracking-widest">Upload foto hanya tersedia untuk Transaksi Masuk</p>
+               </div>
+             ) : (
+               <div className="space-y-4">
+                 <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto custom-scrollbar p-1">
+                    {photos.map((src, idx) => (
+                      <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-card-border dark:border-slate-800 group shadow-sm">
+                        <img src={src} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
+                        <button 
+                          onClick={() => removePhoto(idx)}
+                          className="absolute top-1.5 right-1.5 p-1.5 bg-red-500/80 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600 shadow-md"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    {photos.length === 0 && (
+                      <div 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="col-span-2 py-10 text-center bg-surface/50 dark:bg-slate-950/30 rounded-2xl border border-dashed border-card-border dark:border-slate-800 cursor-pointer hover:bg-white dark:hover:bg-slate-800 transition-all"
+                      >
+                        <UploadCloud size={32} className="mx-auto text-secondary mb-2" />
+                        <p className="text-[10px] font-black text-muted-gray uppercase tracking-widest">Klik untuk upload foto barang masuk</p>
+                      </div>
+                    )}
+                 </div>
+                 <input 
+                   type="file" 
+                   ref={fileInputRef} 
+                   onChange={handlePhotoUpload} 
+                   accept="image/*" 
+                   multiple 
+                   capture="environment" // Auto-open camera on mobile
+                   className="hidden" 
+                 />
+                 {photos.length > 0 && (
+                   <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest text-center bg-emerald-50 dark:bg-emerald-900/20 py-1.5 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
+                     {photos.length} Foto terpilih untuk diunggah
+                   </p>
+                 )}
+               </div>
+             )}
           </div>
-          <button onClick={handleProcess} disabled={cart.length === 0} className={`px-12 py-3.5 rounded-2xl font-black text-[11px] text-white shadow-soft-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center gap-2 uppercase tracking-widest ${activeTab === 'Inbound' ? 'bg-secondary' : 'bg-primary'} disabled:opacity-30`}>SIMPAN TRANSAKSI <ArrowRight size={14} /></button>
+
+          {/* Quick Info / Summary */}
+          <div className="bg-gradient-to-br from-primary to-secondary p-6 rounded-2xl shadow-glow-primary text-white space-y-4">
+             <div className="flex items-center gap-2 opacity-80">
+                <FileText size={16} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Ringkasan Sesi</span>
+             </div>
+             <div>
+                <h4 className="text-2xl font-black">{cart.length} <span className="text-xs font-bold opacity-70">Item</span></h4>
+                <p className="text-[10px] font-bold opacity-80 uppercase tracking-tighter mt-1">Siap untuk diproses ke cloud spreadsheet</p>
+             </div>
+             {photos.length > 0 && activeTab === 'Inbound' && (
+               <div className="flex items-center gap-2 bg-white/20 p-2 rounded-xl border border-white/10">
+                 <ImageIcon size={14} />
+                 <span className="text-[10px] font-bold uppercase">{photos.length} lampiran foto disertakan</span>
+               </div>
+             )}
+          </div>
         </div>
       </div>
 
