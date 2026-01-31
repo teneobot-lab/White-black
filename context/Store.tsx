@@ -15,6 +15,7 @@ interface AppContextType {
   processTransaction: (type: TransactionType, cart: CartItem[], details: any) => Promise<boolean>;
   deleteTransaction: (id: string) => void;
   addRejectLog: (log: RejectLog) => void;
+  deleteRejectLog: (id: string) => void;
   isDarkMode: boolean;
   toggleTheme: () => void;
   backendOnline: boolean;
@@ -223,12 +224,18 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     pushAction('addRejectLog', log);
   };
 
+  // Fix: Missing deleteRejectLog implementation required by RejectManager
+  const deleteRejectLog = (id: string) => {
+    setRejectLogs(prev => prev.filter(l => l.id !== id));
+    pushAction('deleteRejectLog', { id });
+  };
+
   return (
     <AppContext.Provider value={{ 
       items, transactions, rejectMasterData, rejectLogs, 
       addItem, bulkAddItems, updateItem, deleteItem, bulkDeleteItems,
       processTransaction, deleteTransaction, 
-      addRejectLog, isDarkMode, toggleTheme, backendOnline, lastError, lastSync,
+      addRejectLog, deleteRejectLog, isDarkMode, toggleTheme, backendOnline, lastError, lastSync,
       refreshData: fetchData, apiUrl, updateApiUrl, testConnection
     }}>
       {children}
