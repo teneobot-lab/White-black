@@ -6,11 +6,12 @@ import {
   ShoppingCart, Plus, Trash2, CheckCircle, AlertCircle, 
   Search, ChevronDown, X, Box, Calendar, User, Hash, 
   FileText, ArrowRight, Keyboard, Camera, Image as ImageIcon, 
-  UploadCloud, FileImage
+  UploadCloud, FileImage, FileUp, FileDown
 } from 'lucide-react';
+import { utils, read, writeFile } from 'xlsx';
 
 const Transactions: React.FC = () => {
-  const { items, processTransaction } = useAppStore();
+  const { items, processTransaction, bulkAddItems } = useAppStore();
   
   const [activeTab, setActiveTab] = useState<'Inbound' | 'Outbound'>('Outbound');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -21,9 +22,9 @@ const Transactions: React.FC = () => {
   const [quantity, setQuantity] = useState<number | undefined>(undefined); 
   const [selectedUnit, setSelectedUnit] = useState<'base' | 'secondary'>('base');
   
-  // New state for photo handling
   const [photos, setPhotos] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bulkImportRef = useRef<HTMLInputElement>(null);
 
   const [details, setDetails] = useState({ 
     supplierName: '', 
@@ -103,12 +104,101 @@ const Transactions: React.FC = () => {
     setTimeout(() => searchInputRef.current?.focus(), 10);
   };
 
-  // --- PHOTO HANDLING LOGIC ---
+  // --- BULK TRANSACTION IMPORT LOGIC ---
+  const handleDownloadTemplate = () => {
+    const headers = [
+      ["SKU", "Nama Barang", "Qty", "Satuan"],
+      ["SKU001", "Barang Contoh A", 10, "Pcs"],
+      ["NEW-SKU-99", "Barang Baru Otomatis", 5, "Box"]
+    ];
+    const ws = utils.aoa_to_sheet(headers);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Import Transaksi");
+    writeFile(wb, "Template_Bulk_Transaksi.xlsx");
+  };
+
+  const handleBulkImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const bstr = event.target?.result;
+        const wb = read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data: any[] = utils.sheet_to_json(ws);
+
+        if (data.length === 0) {
+          setMessage({ type: 'error', text: 'File kosong atau format salah.' });
+          return;
+        }
+
+        const newItemsToCreate: any[] = [];
+        const newCartItems: CartItem[] = [];
+        
+        // Generate temporary IDs for new items so we can link them in the cart
+        const tempIdMap = new Map();
+
+        data.forEach(row => {
+          const sku = String(row.SKU || row["Kode Barang"] || '').trim();
+          const name = String(row.Name || row["Nama Barang"] || 'Unnamed Item').trim();
+          const qty = Number(row.Qty || row.Quantity || 0);
+          const unit = String(row.Unit || row.Satuan || 'Pcs').trim();
+
+          if (!sku || qty <= 0) return;
+
+          let existingItem = items.find(i => i.sku.toLowerCase() === sku.toLowerCase());
+          
+          if (!existingItem) {
+            // Auto-create item object
+            const newId = Math.random().toString(36).substr(2, 9);
+            const newItem = {
+              id: newId,
+              sku,
+              name,
+              category: 'Imported',
+              price: 0,
+              location: '-',
+              minLevel: 0,
+              currentStock: 0,
+              unit: unit,
+              status: 'Active' as any,
+              conversionRate: 1
+            };
+            newItemsToCreate.push(newItem);
+            existingItem = newItem as any;
+          }
+
+          newCartItems.push({
+            itemId: existingItem!.id,
+            itemName: existingItem!.name,
+            sku: existingItem!.sku,
+            quantity: qty,
+            currentStock: existingItem!.currentStock,
+            inputQuantity: qty,
+            inputUnit: unit
+          });
+        });
+
+        if (newItemsToCreate.length > 0) {
+          bulkAddItems(newItemsToCreate);
+          setMessage({ type: 'success', text: `${newItemsToCreate.length} SKU baru dibuat otomatis.` });
+        }
+
+        setCart(prev => [...prev, ...newCartItems]);
+        if (bulkImportRef.current) bulkImportRef.current.value = '';
+      } catch (err) {
+        setMessage({ type: 'error', text: 'Gagal memproses file import.' });
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    // Fixed: Explicitly cast each file to 'File' to avoid type inference issues with Array.from
     Array.from(files).forEach((file: File) => {
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -133,10 +223,9 @@ const Transactions: React.FC = () => {
   const handleProcess = async () => {
     if (cart.length === 0) return;
     
-    // Include photos in the transaction details
     const finalDetails = { 
       ...details, 
-      photos: photos // Backend AppScript akan menerima array base64 ini
+      photos: photos
     };
 
     const success = await processTransaction(activeTab, cart, finalDetails);
@@ -158,14 +247,24 @@ const Transactions: React.FC = () => {
             <p className="text-[10px] font-bold text-muted-gray uppercase tracking-widest mt-1">Mode: {activeTab}</p>
           </div>
         </div>
-        <div className="p-1 bg-surface dark:bg-slate-800 rounded-xl flex gap-1">
-          <button onClick={() => { setActiveTab('Outbound'); setPhotos([]); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'Outbound' ? 'bg-white dark:bg-slate-700 text-primary shadow-sm' : 'text-muted-gray hover:text-navy'}`}>PENGELUARAN</button>
-          <button onClick={() => setActiveTab('Inbound')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'Inbound' ? 'bg-white dark:bg-slate-700 text-secondary shadow-sm' : 'text-muted-gray hover:text-navy'}`}>PENERIMAAN</button>
+        <div className="flex items-center gap-2">
+           <div className="p-1 bg-surface dark:bg-slate-800 rounded-xl flex gap-1 mr-4">
+            <button onClick={() => { setActiveTab('Outbound'); setPhotos([]); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'Outbound' ? 'bg-white dark:bg-slate-700 text-primary shadow-sm' : 'text-muted-gray hover:text-navy'}`}>PENGELUARAN</button>
+            <button onClick={() => setActiveTab('Inbound')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'Inbound' ? 'bg-white dark:bg-slate-700 text-secondary shadow-sm' : 'text-muted-gray hover:text-navy'}`}>PENERIMAAN</button>
+          </div>
+          
+          <button onClick={handleDownloadTemplate} className="p-2.5 bg-white dark:bg-slate-800 border border-card-border dark:border-slate-700 rounded-xl text-navy dark:text-white shadow-sm hover:bg-surface transition-all active:scale-95 group">
+            <FileDown size={18} className="text-primary group-hover:scale-110 transition-transform" />
+          </button>
+          
+          <button onClick={() => bulkImportRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 bg-navy dark:bg-slate-800 text-white dark:text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-soft hover:bg-slate-800 transition-all active:scale-95">
+            <FileUp size={16} /> Bulk Import
+          </button>
+          <input type="file" ref={bulkImportRef} onChange={handleBulkImport} accept=".xlsx, .xls, .csv" className="hidden" />
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Main Form Area */}
         <div className="lg:col-span-8 space-y-6">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-soft border border-card-border dark:border-slate-800">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -280,7 +379,6 @@ const Transactions: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar: Photo Upload Section (Inbound Only) */}
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-soft border border-card-border dark:border-slate-800 p-6">
              <div className="flex items-center justify-between mb-4">
@@ -333,7 +431,7 @@ const Transactions: React.FC = () => {
                    onChange={handlePhotoUpload} 
                    accept="image/*" 
                    multiple 
-                   capture="environment" // Auto-open camera on mobile
+                   capture="environment" 
                    className="hidden" 
                  />
                  {photos.length > 0 && (
@@ -345,7 +443,6 @@ const Transactions: React.FC = () => {
              )}
           </div>
 
-          {/* Quick Info / Summary */}
           <div className="bg-gradient-to-br from-primary to-secondary p-6 rounded-2xl shadow-glow-primary text-white space-y-4">
              <div className="flex items-center gap-2 opacity-80">
                 <FileText size={16} />
