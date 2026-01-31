@@ -29,29 +29,32 @@ function doPost(e) {
       case 'addItem':
         addRow("Items", data);
         break;
-        
       case 'bulkAddItem':
         addRows("Items", data.items);
         break;
-        
       case 'processTransaction':
         handleTransaction(data);
         break;
-        
       case 'addRejectLog':
         addRow("RejectLogs", data);
         break;
-        
+      case 'deleteRejectLog':
+        deleteRow("RejectLogs", data.id);
+        break;
       case 'addRejectItem':
         addRow("RejectMaster", data);
         break;
-
+      case 'updateRejectItem':
+        updateRow("RejectMaster", data.id, data);
+        break;
+      case 'deleteRejectItem':
+        deleteRow("RejectMaster", data.id);
+        break;
       case 'bulkAddRejectItems':
         addRows("RejectMaster", data.items);
         break;
-
       default:
-        throw new Error("Action not found");
+        throw new Error("Action not found: " + action);
     }
     
     return ContentService.createTextOutput(JSON.stringify({ success: true }))
@@ -69,70 +72,48 @@ function handleTransaction(payload) {
   const sheetTrx = SS.getSheetByName("Transactions");
   const sheetItems = SS.getSheetByName("Items");
   
-  // 1. Handle Photos & Drive
   let driveLink = "";
   if (trx.photos && trx.photos.length > 0) {
-    const parentFolderId = "YOUR_FOLDER_ID_HERE"; // Optional: Put a specific folder ID here
     const folderName = `Photos_${trx.transactionId}`;
     let folder;
-    
     try {
       folder = DriveApp.createFolder(folderName);
     } catch(e) {
       folder = DriveApp.getRootFolder().createFolder(folderName);
     }
-    
     trx.photos.forEach((base64, idx) => {
+      if (!base64.includes(',')) return;
       const contentType = base64.substring(5, base64.indexOf(';'));
       const bytes = Utilities.base64Decode(base64.split(',')[1]);
       const blob = Utilities.newBlob(bytes, contentType, `photo_${idx}.jpg`);
       folder.createFile(blob);
     });
-    
     driveLink = folder.getUrl();
   }
 
-  // 2. Update Stocks & Auto-Create Items
   updates.forEach(upd => {
     let itemFound = false;
     const itemRows = sheetItems.getDataRange().getValues();
-    
     for (let i = 1; i < itemRows.length; i++) {
       if (itemRows[i][0] == upd.id || itemRows[i][1] == upd.sku) {
-        sheetItems.getRange(i + 1, 8).setValue(upd.currentStock); // Column H is currentStock
+        sheetItems.getRange(i + 1, 8).setValue(upd.currentStock);
         itemFound = true;
         break;
       }
     }
-    
-    // Auto-create if not found (Safety net for bulk import transactions)
     if (!itemFound) {
-      sheetItems.appendRow([
-        upd.id, upd.sku, upd.name, "Auto-Created", 0, "-", 0, upd.currentStock, upd.unit || "Pcs", "Active", 1, ""
-      ]);
+      sheetItems.appendRow([upd.id, upd.sku, upd.name, "Auto-Created", 0, "-", 0, upd.currentStock, upd.unit || "Pcs", "Active", 1, ""]);
     }
   });
 
-  // 3. Record Transaction
-  sheetTrx.appendRow([
-    trx.id,
-    trx.transactionId,
-    trx.type,
-    trx.date,
-    JSON.stringify(trx.items),
-    trx.supplierName || "",
-    trx.poNumber || "",
-    trx.sjNumber || "",
-    trx.totalItems,
-    driveLink // Store the Drive Link instead of raw base64
-  ]);
+  sheetTrx.appendRow([trx.id, trx.transactionId, trx.type, trx.date, JSON.stringify(trx.items), trx.supplierName || "", trx.poNumber || "", trx.sjNumber || "", trx.totalItems, driveLink]);
 }
 
-// Helper Utilities
 function getSheetData(name) {
   const sheet = SS.getSheetByName(name);
   if (!sheet) return [];
   const rows = sheet.getDataRange().getValues();
+  if (rows.length < 2) return [];
   const headers = rows.shift();
   return rows.map(row => {
     const obj = {};
@@ -144,10 +125,37 @@ function getSheetData(name) {
 function addRow(sheetName, data) {
   const sheet = SS.getSheetByName(sheetName);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const newRow = headers.map(h => data[h] || "");
+  const newRow = headers.map(h => data[h] === undefined ? "" : data[h]);
   sheet.appendRow(newRow);
 }
 
 function addRows(sheetName, items) {
   items.forEach(item => addRow(sheetName, item));
+}
+
+function updateRow(sheetName, id, data) {
+  const sheet = SS.getSheetByName(sheetName);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == id) {
+      headers.forEach((h, j) => {
+        if (data[h] !== undefined) {
+          sheet.getRange(i + 1, j + 1).setValue(data[h]);
+        }
+      });
+      break;
+    }
+  }
+}
+
+function deleteRow(sheetName, id) {
+  const sheet = SS.getSheetByName(sheetName);
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] == id) {
+      sheet.deleteRow(i + 1);
+      break;
+    }
+  }
 }
