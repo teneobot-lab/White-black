@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, PropsWithChildren, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, PropsWithChildren, useCallback, useRef } from 'react';
 import { Item, Transaction, TransactionType, CartItem, RejectItem, RejectLog } from '../types';
 
 interface AppContextType {
@@ -23,6 +23,7 @@ interface AppContextType {
   isDarkMode: boolean;
   toggleTheme: () => void;
   backendOnline: boolean;
+  isSyncing: boolean;
   lastError: string | null;
   lastSync: Date | null;
   refreshData: () => Promise<void>;
@@ -40,9 +41,13 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
   const [rejectLogs, setRejectLogs] = useState<RejectLog[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('jupiter_theme') === 'dark');
   const [backendOnline, setBackendOnline] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('jupiter_api_url') || "");
+
+  // Guard for blocking background fetch during write operations
+  const syncLockRef = useRef<boolean>(false);
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
   const toggleTheme = () => setIsDarkMode(prev => !prev);
@@ -81,11 +86,16 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
     return [];
   };
 
-  const fetchData = useCallback(async () => {
-    if (!apiUrl) return;
+  const fetchData = useCallback(async (force = false) => {
+    if (!apiUrl || (!force && syncLockRef.current)) return;
+    
     try {
       const res = await fetch(apiUrl);
       const data = await res.json();
+      
+      // Jika data error dari Apps Script
+      if (data.error) throw new Error(data.error);
+
       setItems((data.items || []).map((item: any) => ({
         ...item,
         price: parseFloat(item.price) || 0,
@@ -103,6 +113,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
         ...l, 
         items: safeJsonParse(l.items) 
       })));
+      
       setBackendOnline(true);
       setLastError(null);
       setLastSync(new Date());
@@ -114,21 +125,42 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000);
+    const interval = setInterval(() => fetchData(), 60000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
   const pushAction = async (action: string, data: any) => {
-    if (!apiUrl) return;
+    if (!apiUrl) return false;
+    
+    // Aktifkan lock agar fetchData latar belakang tidak menimpa state lokal yang baru diupdate
+    syncLockRef.current = true;
+    setIsSyncing(true);
+    
     try {
-      await fetch(apiUrl, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action, data })
       });
-      setTimeout(fetchData, 2000);
-    } catch (err) {
-      console.error("Apps Script Sync Error:", err);
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Beri waktu tambahan 3 detik sebelum melepas lock agar Google Sheets benar-benar stabil
+        setTimeout(() => {
+          syncLockRef.current = false;
+          setIsSyncing(false);
+          fetchData(true); // Force fetch data terbaru
+        }, 5000);
+        return true;
+      } else {
+        throw new Error(result.error || "Gagal menyimpan ke server");
+      }
+    } catch (err: any) {
+      setLastError(err.message);
+      setIsSyncing(false);
+      syncLockRef.current = false;
+      return false;
     }
   };
 
@@ -174,6 +206,7 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
         unit: cartItem.inputUnit
       };
     });
+    
     const newTrx: Transaction = {
       id: generateId(),
       transactionId: trxId,
@@ -183,14 +216,16 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       totalItems: cart.reduce((a, b) => a + (b.quantity || 0), 0),
       ...details
     };
+
+    // Update lokal dulu (Optimistic UI)
     setTransactions(prev => [newTrx, ...prev]);
     setItems(prev => prev.map(item => {
       const update = itemsUpdateWithMetadata.find(u => u.id === item.id);
       if (update) return { ...item, currentStock: update.currentStock };
       return item;
     }));
-    await pushAction('processTransaction', { trx: newTrx, items_update: itemsUpdateWithMetadata });
-    return true;
+
+    return await pushAction('processTransaction', { trx: newTrx, items_update: itemsUpdateWithMetadata });
   };
 
   const deleteTransaction = (id: string) => {
@@ -236,8 +271,8 @@ export const AppProvider = ({ children }: PropsWithChildren<{}>) => {
       addItem, bulkAddItems, updateItem, deleteItem, bulkDeleteItems,
       processTransaction, deleteTransaction, 
       addRejectLog, deleteRejectLog, addRejectItem, updateRejectItem, deleteRejectItem, bulkAddRejectItems,
-      isDarkMode, toggleTheme, backendOnline, lastError, lastSync,
-      refreshData: fetchData, apiUrl, updateApiUrl, testConnection
+      isDarkMode, toggleTheme, backendOnline, isSyncing, lastError, lastSync,
+      refreshData: () => fetchData(true), apiUrl, updateApiUrl, testConnection
     }}>
       {children}
     </AppContext.Provider>

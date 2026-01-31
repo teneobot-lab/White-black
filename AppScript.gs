@@ -2,29 +2,37 @@
 /**
  * JUPITER WMS - GOOGLE APPS SCRIPT BACKEND
  * Setup: Deploy as Web App, set access to "Anyone".
- * Required Sheets: "Items", "Transactions", "RejectMaster", "RejectLogs"
  */
 
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 
 function doGet(e) {
-  const data = {
-    items: getSheetData("Items"),
-    transactions: getSheetData("Transactions"),
-    rejectMaster: getSheetData("RejectMaster"),
-    rejectLogs: getSheetData("RejectLogs")
-  };
-  
-  return ContentService.createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
+  try {
+    const data = {
+      items: getSheetData("Items"),
+      transactions: getSheetData("Transactions"),
+      rejectMaster: getSheetData("RejectMaster"),
+      rejectLogs: getSheetData("RejectLogs")
+    };
+    
+    return ContentService.createTextOutput(JSON.stringify(data))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function doPost(e) {
-  const postData = JSON.parse(e.postData.contents);
-  const action = postData.action;
-  const data = postData.data;
-
+  // Gunakan LockService agar tidak terjadi tabrakan data saat banyak user input
+  const lock = LockService.getScriptLock();
   try {
+    lock.waitLock(30000); // Tunggu maksimal 30 detik
+    
+    const postData = JSON.parse(e.postData.contents);
+    const action = postData.action;
+    const data = postData.data;
+
     switch (action) {
       case 'addItem':
         addRow("Items", data);
@@ -57,12 +65,17 @@ function doPost(e) {
         throw new Error("Action not found: " + action);
     }
     
+    // Pastikan data benar-benar tersimpan ke Spreadsheet sebelum melepas lock
+    SpreadsheetApp.flush();
+    
     return ContentService.createTextOutput(JSON.stringify({ success: true }))
       .setMimeType(ContentService.MimeType.JSON);
       
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -91,6 +104,7 @@ function handleTransaction(payload) {
     driveLink = folder.getUrl();
   }
 
+  // Update Stok di Sheet Items
   updates.forEach(upd => {
     let itemFound = false;
     const itemRows = sheetItems.getDataRange().getValues();
@@ -106,6 +120,7 @@ function handleTransaction(payload) {
     }
   });
 
+  // Tambah baris transaksi
   sheetTrx.appendRow([trx.id, trx.transactionId, trx.type, trx.date, JSON.stringify(trx.items), trx.supplierName || "", trx.poNumber || "", trx.sjNumber || "", trx.totalItems, driveLink]);
 }
 

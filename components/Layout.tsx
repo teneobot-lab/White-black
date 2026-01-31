@@ -1,6 +1,8 @@
 
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+// Fix react-router-dom import errors by splitting core and DOM members
+import { Link } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { useAppStore } from '../context/Store';
 import { 
   LayoutDashboard, 
@@ -17,7 +19,8 @@ import {
   Globe,
   Bell,
   Search,
-  LogOut
+  LogOut,
+  RefreshCw
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -25,7 +28,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { isDarkMode, toggleTheme, backendOnline, apiUrl } = useAppStore();
+  const { isDarkMode, toggleTheme, backendOnline, isSyncing, apiUrl } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
 
@@ -41,7 +44,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-card-border dark:border-slate-800 transition-all duration-300">
-      {/* Logo Section */}
       <div className="h-20 px-8 flex items-center mb-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white shadow-glow-primary">
@@ -63,7 +65,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </div>
       
-      {/* Navigation */}
       <nav className="flex-1 px-4 space-y-1">
         <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Main Menu</p>
         {navItems.map((item) => {
@@ -86,7 +87,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         })}
       </nav>
 
-      {/* Footer Actions */}
       <div className="p-6 border-t border-card-border dark:border-slate-800 space-y-4">
         <div className="flex items-center justify-between px-2">
            <div className="flex items-center gap-2">
@@ -107,12 +107,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen flex bg-surface dark:bg-slate-950 transition-colors duration-200">
-      {/* Sidebar Desktop */}
       <aside className="hidden lg:flex flex-col w-64 h-screen sticky top-0">
         <SidebarContent />
       </aside>
 
-      {/* Sidebar Mobile Overlay */}
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-navy/20 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
@@ -120,7 +118,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <SidebarContent />
       </aside>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-screen min-w-0">
         <header className="h-16 lg:h-20 bg-surface/80 dark:bg-slate-950/80 backdrop-blur-md px-6 lg:px-10 flex items-center justify-between sticky top-0 z-30 border-b border-card-border/50 dark:border-slate-800/50">
           <div className="flex items-center gap-4">
@@ -138,6 +135,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            {isSyncing && (
+              <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1.5 rounded-full animate-pulse border border-primary/20">
+                <RefreshCw size={14} className="animate-spin" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Syncing...</span>
+              </div>
+            )}
             <button className="p-2.5 rounded-xl text-muted-gray hover:text-primary hover:bg-white dark:hover:bg-slate-800 transition-all relative">
               <Bell size={18} />
               <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-red-500 rounded-full border-2 border-surface dark:border-slate-950" />
